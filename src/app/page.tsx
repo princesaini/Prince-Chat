@@ -125,7 +125,7 @@ export default function Home() {
       <header className="flex items-center justify-between p-4 border-b shrink-0">
         <div className="flex items-center gap-2">
           <Bot className="w-8 h-8 text-primary" />
-          <h1 className="text-xl font-semibold">Ollama Chat</h1>
+          <h1 className="text-xl font-semibold">Prince Chat</h1>
         </div>
         <Button variant="ghost" size="icon" onClick={handleNewChat} aria-label="New Chat">
           <Plus className="w-5 h-5" />
@@ -138,7 +138,7 @@ export default function Home() {
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-[calc(100vh-150px)] text-center text-muted-foreground">
                   <Bot className="w-16 h-16 mb-4" />
-                  <h2 className="text-2xl font-semibold">Welcome to Ollama Chat</h2>
+                  <h2 className="text-2xl font-semibold">Welcome to Prince Chat</h2>
                   <p>Start a conversation by typing a message below.</p>
               </div>
             )}
