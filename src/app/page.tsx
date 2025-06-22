@@ -61,10 +61,10 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:11434/api/chat', {
+      const response = await fetch('http://127.0.0.1:11434/api/chat', {
         method: 'POST',
         body: JSON.stringify({
-          model: 'llama3',
+          model: 'llama3.2',
           messages: newMessages,
           stream: true,
         }),
@@ -113,7 +113,7 @@ export default function Home() {
         variant: 'destructive',
         title: 'An error occurred.',
         description:
-          "Failed to connect to Ollama. Ensure it's running on http://localhost:11434.",
+          "Failed to connect to Ollama. Ensure it's running on http://127.0.0.1:11434.",
       });
     } finally {
       setIsLoading(false);
