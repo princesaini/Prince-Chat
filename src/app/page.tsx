@@ -56,7 +56,7 @@ export default function Home() {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:11434/api/tags');
+        const response = await fetch('/api/ollama/api/tags');
         if (!response.ok) {
           throw new Error('Failed to fetch models from Ollama.');
         }
@@ -71,7 +71,7 @@ export default function Home() {
           variant: 'destructive',
           title: 'Failed to fetch models.',
           description:
-            "Could not connect to Ollama to get available models. Please ensure it's running.",
+            "Could not fetch models. Please ensure Ollama is running.",
         });
       }
     };
@@ -111,7 +111,7 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:11434/api/chat', {
+      const response = await fetch('/api/ollama/api/chat', {
         method: 'POST',
         body: JSON.stringify({
           model: selectedModel,
@@ -143,15 +143,15 @@ export default function Home() {
             const parsed = JSON.parse(line);
             if (parsed.message?.content) {
               setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
+                const updatedMessages = [...prev];
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
                 if (lastMessage && lastMessage.role === 'assistant') {
-                  newMessages[newMessages.length - 1] = {
+                  updatedMessages[updatedMessages.length - 1] = {
                     ...lastMessage,
                     content: lastMessage.content + parsed.message.content,
                   };
                 }
-                return newMessages;
+                return updatedMessages;
               });
             }
           } catch (e) {
@@ -166,7 +166,7 @@ export default function Home() {
         variant: 'destructive',
         title: 'An error occurred.',
         description:
-          "Failed to connect to Ollama. Ensure it's running on http://127.0.0.1:11434.",
+          "Failed to get a response from Ollama. Please ensure it's running.",
       });
     } finally {
       setIsLoading(false);
