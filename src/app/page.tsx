@@ -12,6 +12,13 @@ import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ArrowUp, Bot, Plus, User, Loader2 } from 'lucide-react';
@@ -21,6 +28,12 @@ type Message = {
   content: string;
 };
 
+type Model = {
+  name: string;
+  modified_at: string;
+  size: number;
+};
+
 const formSchema = z.object({
   message: z.string().min(1, 'Message cannot be empty.'),
 });
@@ -28,6 +41,8 @@ const formSchema = z.object({
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('');
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +52,32 @@ export default function Home() {
       message: '',
     },
   });
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:11434/api/tags');
+        if (!response.ok) {
+          throw new Error('Failed to fetch models from Ollama.');
+        }
+        const data = await response.json();
+        setModels(data.models);
+        if (data.models.length > 0) {
+          setSelectedModel(data.models[0].name);
+        }
+      } catch (error) {
+        console.error(error);
+        toast({
+          variant: 'destructive',
+          title: 'Failed to fetch models.',
+          description:
+            "Could not connect to Ollama to get available models. Please ensure it's running.",
+        });
+      }
+    };
+
+    fetchModels();
+  }, [toast]);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,6 +95,15 @@ export default function Home() {
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (isLoading) return;
 
+    if (!selectedModel) {
+      toast({
+        variant: 'destructive',
+        title: 'No model selected.',
+        description: 'Please select a model from the dropdown first.',
+      });
+      return;
+    }
+
     const userInput = values.message;
     const newMessages: Message[] = [...messages, { role: 'user', content: userInput }];
     setMessages(newMessages);
@@ -64,7 +114,7 @@ export default function Home() {
       const response = await fetch('http://127.0.0.1:11434/api/chat', {
         method: 'POST',
         body: JSON.stringify({
-          model: 'llama3.2',
+          model: selectedModel,
           messages: newMessages,
           stream: true,
         }),
@@ -92,13 +142,17 @@ export default function Home() {
           try {
             const parsed = JSON.parse(line);
             if (parsed.message?.content) {
-              setMessages((prev) =>
-                prev.map((msg, i) =>
-                  i === prev.length - 1 && msg.role === 'assistant'
-                    ? { ...msg, content: msg.content + parsed.message.content }
-                    : msg
-                )
-              );
+              setMessages((prev) => {
+                const newMessages = [...prev];
+                const lastMessage = newMessages[newMessages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  newMessages[newMessages.length - 1] = {
+                    ...lastMessage,
+                    content: lastMessage.content + parsed.message.content,
+                  };
+                }
+                return newMessages;
+              });
             }
           } catch (e) {
             console.error('Error parsing streaming data:', e);
@@ -126,9 +180,25 @@ export default function Home() {
           <Bot className="w-8 h-8 text-primary" />
           <h1 className="text-xl font-semibold">Prince Chat</h1>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleNewChat} aria-label="New Chat">
-          <Plus className="w-5 h-5" />
-        </Button>
+        <div className="flex items-center gap-4">
+          {models.length > 0 && (
+            <Select value={selectedModel} onValueChange={setSelectedModel}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((model) => (
+                  <SelectItem key={model.name} value={model.name}>
+                    {model.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button variant="ghost" size="icon" onClick={handleNewChat} aria-label="New Chat">
+            <Plus className="w-5 h-5" />
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 overflow-hidden">
@@ -209,13 +279,13 @@ export default function Home() {
                         placeholder="Type a message..."
                         autoComplete="off"
                         {...field}
-                        disabled={isLoading}
+                        disabled={isLoading || !selectedModel}
                         className="pr-12"
                       />
                       <Button
                         type="submit"
                         size="icon"
-                        disabled={isLoading || !field.value}
+                        disabled={isLoading || !field.value || !selectedModel}
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-accent hover:bg-accent/90"
                       >
                         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
