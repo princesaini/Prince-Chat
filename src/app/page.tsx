@@ -92,14 +92,13 @@ export default function Home() {
           try {
             const parsed = JSON.parse(line);
             if (parsed.message?.content) {
-              setMessages((prev) => {
-                const updatedMessages = [...prev];
-                const lastMessage = updatedMessages[updatedMessages.length - 1];
-                if (lastMessage.role === 'assistant') {
-                  lastMessage.content += parsed.message.content;
-                }
-                return updatedMessages;
-              });
+              setMessages((prev) =>
+                prev.map((msg, i) =>
+                  i === prev.length - 1 && msg.role === 'assistant'
+                    ? { ...msg, content: msg.content + parsed.message.content }
+                    : msg
+                )
+              );
             }
           } catch (e) {
             console.error('Error parsing streaming data:', e);
