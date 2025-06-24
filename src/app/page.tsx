@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ArrowUp, Bot, Plus, User, Loader2 } from 'lucide-react';
+import { ArrowUp, Bot, Plus, User, Loader2, Copy } from 'lucide-react';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -173,6 +173,15 @@ export default function Home() {
     }
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: 'Copied to clipboard',
+      description: 'The message has been copied to your clipboard.',
+      duration: 2000,
+    });
+  };
+
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center justify-between p-4 border-b shrink-0">
@@ -220,8 +229,11 @@ export default function Home() {
                 )}
               >
                 {message.role === 'assistant' && (
-                  <Avatar className="w-8 h-8 border">
-                    <AvatarFallback><Bot className="w-4 h-4" /></AvatarFallback>
+                  <Avatar className="w-8 h-8 border shrink-0">
+                    <AvatarFallback>
+                      <Bot className="w-4 h-4" />
+                    </AvatarFallback>
+                    
                   </Avatar>
                 )}
                 <div
@@ -231,31 +243,48 @@ export default function Home() {
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-card'
                   )}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    className="max-w-none"
-                    components={{
-                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal list-inside" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc list-inside" {...props} />,
-                        li: ({node, ...props}) => <li className="mb-1" {...props} />,
-                        code: ({node, inline, className, children, ...props}) => {
-                          const match = /language-(\w+)/.exec(className || '')
-                          return !inline ? (
-                            <pre className="p-2 my-2 bg-muted rounded-md overflow-x-auto"><code className={className} {...props}>{children}</code></pre>
-                          ) : (
-                            <code className="px-1 py-0.5 bg-muted rounded-sm" {...props}>{children}</code>
-                          )
-                        }
-                    }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                > 
+                  <div className="flex flex-col gap-2">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      className="max-w-none"
+                      components={{
+                          p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal list-inside" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc list-inside" {...props} />,
+                          li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                          code: ({node, inline, className, children, ...props}) => {
+                            const match = /language-(\w+)/.exec(className || '')
+                            return !inline ? (
+                              <pre className="p-2 my-2 bg-muted rounded-md overflow-x-auto"><code className={className} {...props}>{children}</code></pre>
+                            ) : (
+                              <code className="px-1 py-0.5 bg-muted rounded-sm" {...props}>{children}</code>
+                            )
+                          }
+                      }}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                    {message.role === 'assistant' && (
+                      <div className="flex justify-end">
+                         <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleCopy(message.content)}
+                          aria-label="Copy message"
+                          className="w-6 h-6"
+                         >
+                            <Copy className="w-3 h-3" />
+                         </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {message.role === 'user' && (
-                  <Avatar className="w-8 h-8 border">
-                    <AvatarFallback><User className="w-4 h-4" /></AvatarFallback>
+                  <Avatar className="w-8 h-8 border shrink-0">
+                    <AvatarFallback>
+                      <User className="w-4 h-4" />
+                    </AvatarFallback>
                   </Avatar>
                 )}
               </div>
