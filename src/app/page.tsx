@@ -22,6 +22,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ArrowUp, Bot, Plus, User, Loader2, Copy, Square } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -223,6 +224,7 @@ export default function Home() {
           <Button variant="outline" size="icon" onClick={handleNewChat} aria-label="New Chat">
             <Plus className="w-5 h-5" />
           </Button>
+          <ThemeToggle />
         </div>
       </header>
 
