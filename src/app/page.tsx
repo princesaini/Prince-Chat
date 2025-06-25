@@ -204,7 +204,7 @@ export default function Home() {
               </SelectContent>
             </Select>
           )}
-          <Button variant="ghost" size="icon" onClick={handleNewChat} aria-label="New Chat">
+          <Button variant="outline" size="icon" onClick={handleNewChat} aria-label="New Chat">
             <Plus className="w-5 h-5" />
           </Button>
         </div>
