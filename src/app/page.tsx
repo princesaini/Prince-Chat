@@ -265,7 +265,7 @@ export default function Home() {
                     >
                       {message.content}
                     </ReactMarkdown>
-                    {message.role === 'assistant' && (
+                    {message.role === 'assistant' && message.content && (index < messages.length - 1 || !isLoading) && (
                       <div className="flex justify-end">
                          <Button 
                           variant="ghost" 
