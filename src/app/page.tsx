@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ArrowUp, Bot, Plus, User, Loader2, Copy } from 'lucide-react';
+import { ArrowUp, Bot, Plus, User, Loader2, Copy, Square } from 'lucide-react';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -45,6 +45,7 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -91,6 +92,12 @@ export default function Home() {
     setMessages([]);
     form.reset();
   };
+  
+  const handleStopGenerating = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (isLoading) return;
@@ -110,6 +117,9 @@ export default function Home() {
     form.reset();
     setIsLoading(true);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const response = await fetch('/api/ollama/api/chat', {
         method: 'POST',
@@ -118,6 +128,7 @@ export default function Home() {
           messages: newMessages,
           stream: true,
         }),
+        signal: controller.signal,
       });
 
       if (!response.body) {
@@ -160,16 +171,21 @@ export default function Home() {
         }
       }
 
-    } catch (error) {
-      setMessages((prev) => prev.slice(0, prev.length - 1));
-      toast({
-        variant: 'destructive',
-        title: 'An error occurred.',
-        description:
-          "Failed to get a response from Ollama. Please ensure it's running.",
-      });
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Generation stopped by user.');
+      } else {
+        setMessages((prev) => prev.slice(0, prev.length - 1));
+        toast({
+          variant: 'destructive',
+          title: 'An error occurred.',
+          description:
+            "Failed to get a response from Ollama. Please ensure it's running.",
+        });
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -311,15 +327,29 @@ export default function Home() {
                         disabled={isLoading || !selectedModel}
                         className="pr-12"
                       />
-                      <Button
-                        type="submit"
-                        size="icon"
-                        disabled={isLoading || !field.value || !selectedModel}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-accent hover:bg-accent/90"
-                      >
-                        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-                        <span className="sr-only">Send</span>
-                      </Button>
+                      {isLoading ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          onClick={handleStopGenerating}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-destructive hover:bg-destructive/90"
+                          aria-label="Stop generating"
+                        >
+                          <Square className="h-4 w-4" />
+                          <span className="sr-only">Stop</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          type="submit"
+                          size="icon"
+                          disabled={!field.value || !selectedModel}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-accent hover:bg-accent/90"
+                          aria-label="Send message"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                          <span className="sr-only">Send</span>
+                        </Button>
+                      )}
                     </div>
                   </FormControl>
                 </FormItem>
