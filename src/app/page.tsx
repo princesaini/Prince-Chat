@@ -187,6 +187,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      form.setFocus('message');
     }
   };
 
@@ -345,7 +346,7 @@ export default function Home() {
                           type="submit"
                           size="icon"
                           disabled={!field.value || !selectedModel}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-accent hover:bg-accent/90"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-primary hover:bg-primary/90"
                           aria-label="Send message"
                         >
                           <ArrowUp className="h-4 w-4" />
