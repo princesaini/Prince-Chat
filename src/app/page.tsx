@@ -333,7 +333,7 @@ export default function Home() {
                   <FormControl>
                     <div className="relative">
                       <Input
-                        placeholder="Type a message..."
+                        placeholder="Ask me anything"
                         autoComplete="off"
                         {...field}
                         disabled={isLoading || !selectedModel}
