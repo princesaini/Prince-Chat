@@ -20,3 +20,6 @@ Welcome to Prince Chat, a sleek and modern chat application that allows you to i
     npm run dev
     ```
 3.  Open your browser to `http://localhost:9002` and start chatting!
+
+![image](https://github.com/user-attachments/assets/5cb7e689-3544-4a49-b73f-c949d813bb56)
+
