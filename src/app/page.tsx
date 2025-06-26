@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -187,7 +188,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
-      form.setFocus('message');
+      setTimeout(() => form.setFocus('message'), 0);
     }
   };
 
