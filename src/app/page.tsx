@@ -56,6 +56,15 @@ export default function Home() {
     },
   });
 
+  const prevIsLoading = useRef(false);
+
+  useEffect(() => {
+    if (prevIsLoading.current && !isLoading) {
+      form.setFocus('message');
+    }
+    prevIsLoading.current = isLoading;
+  }, [isLoading, form]);
+
   useEffect(() => {
     const fetchModels = async () => {
       try {
@@ -188,7 +197,6 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
-      setTimeout(() => form.setFocus('message'), 0);
     }
   };
 
