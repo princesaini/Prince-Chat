@@ -47,48 +47,20 @@ type Message = {
   content: string;
 };
 
-type OllamaModel = {
-  name: string;
-  modified_at: string;
-  size: number;
-};
-
 type OpenRouterModel = {
   id: string;
   name: string;
   context_length?: number;
 };
 
-type Provider = 'ollama' | 'openrouter';
-
 const formSchema = z.object({
   message: z.string().min(1, 'Message cannot be empty.'),
 });
 
 const STORAGE_KEYS = {
-  provider: 'prince-chat-provider',
   openRouterApiKey: 'prince-chat-openrouter-api-key',
   openRouterModel: 'prince-chat-openrouter-model',
-  ollamaModel: 'prince-chat-ollama-model',
 };
-
-function parseOllamaChunk(
-  chunk: string,
-  appendAssistantText: (text: string) => void
-) {
-  const lines = chunk.split('\n').filter((line) => line.trim() !== '');
-
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.message?.content) {
-        appendAssistantText(parsed.message.content);
-      }
-    } catch (error) {
-      console.error('Error parsing Ollama streaming data:', error);
-    }
-  }
-}
 
 function parseOpenRouterChunk(
   chunk: string,
@@ -132,13 +104,11 @@ function parseOpenRouterChunk(
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [provider, setProvider] = useState<Provider>('ollama');
-  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
-  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>('');
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>('');
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [openRouterModelInput, setOpenRouterModelInput] = useState('');
+  const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const { toast } = useToast();
@@ -154,8 +124,18 @@ export default function Home() {
 
   const prevIsLoading = useRef(false);
 
-  const selectedModel =
-    provider === 'ollama' ? selectedOllamaModel : selectedOpenRouterModel;
+  const selectedModel = selectedOpenRouterModel;
+  const filteredOpenRouterModels = openRouterModels.filter((model) => {
+    const query = openRouterModelSearch.trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+
+    return (
+      model.id.toLowerCase().includes(query) ||
+      model.name.toLowerCase().includes(query)
+    );
+  });
 
   const appendAssistantText = (text: string) => {
     setMessages((prev) => {
@@ -171,50 +151,6 @@ export default function Home() {
 
       return updatedMessages;
     });
-  };
-
-  const fetchOllamaModels = async () => {
-    try {
-      const response = await fetch('/api/ollama/api/tags');
-      if (!response.ok) {
-        throw new Error('Failed to fetch models from Ollama.');
-      }
-
-      const data = await response.json();
-      const fetchedModels = Array.isArray(data.models) ? data.models : [];
-      setOllamaModels(fetchedModels);
-
-      if (fetchedModels.length === 0) {
-        setSelectedOllamaModel('');
-        return;
-      }
-
-      setSelectedOllamaModel((currentModel) => {
-        if (
-          currentModel &&
-          fetchedModels.some((model: OllamaModel) => model.name === currentModel)
-        ) {
-          return currentModel;
-        }
-
-        const storedModel = localStorage.getItem(STORAGE_KEYS.ollamaModel);
-        if (
-          storedModel &&
-          fetchedModels.some((model: OllamaModel) => model.name === storedModel)
-        ) {
-          return storedModel;
-        }
-
-        return fetchedModels[0].name;
-      });
-    } catch (error) {
-      console.error(error);
-      toast({
-        variant: 'destructive',
-        title: 'Failed to fetch models.',
-        description: 'Could not fetch models. Please ensure Ollama is running.',
-      });
-    }
   };
 
   const fetchOpenRouterModels = async (apiKey: string) => {
@@ -278,17 +214,10 @@ export default function Home() {
   }, [isLoading, form]);
 
   useEffect(() => {
-    fetchOllamaModels();
-
-    const storedProvider = localStorage.getItem(STORAGE_KEYS.provider);
     const storedOpenRouterApiKey =
       localStorage.getItem(STORAGE_KEYS.openRouterApiKey) ?? '';
     const storedOpenRouterModel =
       localStorage.getItem(STORAGE_KEYS.openRouterModel) ?? '';
-
-    if (storedProvider === 'ollama' || storedProvider === 'openrouter') {
-      setProvider(storedProvider);
-    }
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
     setOpenRouterModelInput(storedOpenRouterModel);
@@ -298,16 +227,6 @@ export default function Home() {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
     }
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.provider, provider);
-  }, [provider]);
-
-  useEffect(() => {
-    if (selectedOllamaModel) {
-      localStorage.setItem(STORAGE_KEYS.ollamaModel, selectedOllamaModel);
-    }
-  }, [selectedOllamaModel]);
 
   useEffect(() => {
     if (selectedOpenRouterModel) {
@@ -361,15 +280,12 @@ export default function Home() {
       toast({
         variant: 'destructive',
         title: 'No model selected.',
-        description:
-          provider === 'ollama'
-            ? 'Please select an Ollama model first.'
-            : 'Please enter or select an OpenRouter model first.',
+        description: 'Please enter or select an OpenRouter model first.',
       });
       return;
     }
 
-    if (provider === 'openrouter' && !openRouterApiKey.trim()) {
+    if (!openRouterApiKey.trim()) {
       toast({
         variant: 'destructive',
         title: 'OpenRouter API key required.',
@@ -393,24 +309,12 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const endpoint =
-        provider === 'ollama'
-          ? '/api/ollama/api/chat'
-          : '/api/openrouter/api/v1/chat/completions';
-
-      const headers: HeadersInit =
-        provider === 'openrouter'
-          ? {
-              'Content-Type': 'application/json',
-              'x-openrouter-api-key': openRouterApiKey.trim(),
-            }
-          : {
-              'Content-Type': 'application/json',
-            };
-
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openrouter-api-key': openRouterApiKey.trim(),
+        },
         body: JSON.stringify({
           model: selectedModel,
           messages: newMessages,
@@ -439,12 +343,7 @@ export default function Home() {
         }
 
         const chunk = decoder.decode(value, { stream: true });
-
-        if (provider === 'ollama') {
-          parseOllamaChunk(chunk, appendAssistantText);
-        } else {
-          parseOpenRouterChunk(chunk, appendAssistantText);
-        }
+        parseOpenRouterChunk(chunk, appendAssistantText);
       }
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -456,10 +355,7 @@ export default function Home() {
         toast({
           variant: 'destructive',
           title: 'An error occurred.',
-          description:
-            provider === 'ollama'
-              ? "Failed to get a response from Ollama. Please ensure it's running."
-              : 'Failed to get a response from OpenRouter. Check your API key and model.',
+          description: 'Failed to get a response from OpenRouter. Check your API key and model.',
         });
       }
     } finally {
@@ -485,57 +381,27 @@ export default function Home() {
           <h1 className="text-xl font-semibold">Prince Chat</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Select
-            value={provider}
-            onValueChange={(value) => setProvider(value as Provider)}
+          <div className="hidden items-center gap-2 md:flex">
+            <Input
+              value={selectedOpenRouterModel}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedOpenRouterModel(value);
+                setOpenRouterModelInput(value);
+              }}
+              placeholder="openai/gpt-4o-mini"
+              className="w-[260px]"
+            />
+          </div>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setIsOpenRouterDialogOpen(true)}
+            aria-label="OpenRouter settings"
           >
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Provider" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ollama">Ollama</SelectItem>
-              <SelectItem value="openrouter">OpenRouter</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {provider === 'ollama' ? (
-            <Select value={selectedOllamaModel} onValueChange={setSelectedOllamaModel}>
-              <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Select an Ollama model" />
-              </SelectTrigger>
-              <SelectContent>
-                {ollamaModels.map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
-                    {model.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <div className="hidden md:flex items-center gap-2">
-              <Input
-                value={selectedOpenRouterModel}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setSelectedOpenRouterModel(value);
-                  setOpenRouterModelInput(value);
-                }}
-                placeholder="openai/gpt-4o-mini"
-                className="w-[240px]"
-              />
-            </div>
-          )}
-
-          {provider === 'openrouter' && (
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setIsOpenRouterDialogOpen(true)}
-              aria-label="OpenRouter settings"
-            >
-              <KeyRound className="h-4 w-4" />
-            </Button>
-          )}
+            <KeyRound className="h-4 w-4" />
+          </Button>
 
           <Button
             variant="outline"
@@ -556,11 +422,7 @@ export default function Home() {
               <div className="flex h-[calc(100vh-150px)] flex-col items-center justify-center text-center text-muted-foreground">
                 <Bot className="mb-4 h-16 w-16" />
                 <h2 className="text-2xl font-semibold">Welcome to Prince Chat</h2>
-                <p>
-                  {provider === 'ollama'
-                    ? 'Chat with your local Ollama models.'
-                    : 'Chat with any OpenRouter model using your API key.'}
-                </p>
+                <p>Chat with any OpenRouter model using your API key.</p>
               </div>
             )}
             {messages.map((message, index) => (
@@ -652,22 +514,20 @@ export default function Home() {
       </main>
 
       <footer className="shrink-0 border-t p-4">
-        {provider === 'openrouter' && (
-          <div className="mb-3 rounded-lg border bg-muted/40 p-3 md:hidden">
-            <Label htmlFor="mobile-openrouter-model">OpenRouter model</Label>
-            <Input
-              id="mobile-openrouter-model"
-              value={selectedOpenRouterModel}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSelectedOpenRouterModel(value);
-                setOpenRouterModelInput(value);
-              }}
-              placeholder="openai/gpt-4o-mini"
-              className="mt-2"
-            />
-          </div>
-        )}
+        <div className="mb-3 rounded-lg border bg-muted/40 p-3 md:hidden">
+          <Label htmlFor="mobile-openrouter-model">OpenRouter model</Label>
+          <Input
+            id="mobile-openrouter-model"
+            value={selectedOpenRouterModel}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSelectedOpenRouterModel(value);
+              setOpenRouterModelInput(value);
+            }}
+            placeholder="openai/gpt-4o-mini"
+            className="mt-2"
+          />
+        </div>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-center gap-2">
@@ -682,11 +542,7 @@ export default function Home() {
                         placeholder="Ask me anything"
                         autoComplete="off"
                         {...field}
-                        disabled={
-                          isLoading ||
-                          !selectedModel ||
-                          (provider === 'openrouter' && !openRouterApiKey.trim())
-                        }
+                        disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
                         className="pr-12"
                       />
                       {isLoading ? (
@@ -705,9 +561,7 @@ export default function Home() {
                           type="submit"
                           size="icon"
                           disabled={
-                            !field.value ||
-                            !selectedModel ||
-                            (provider === 'openrouter' && !openRouterApiKey.trim())
+                            !field.value || !selectedModel || !openRouterApiKey.trim()
                           }
                           className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 rounded-full bg-primary hover:bg-primary/90"
                           aria-label="Send message"
@@ -729,7 +583,7 @@ export default function Home() {
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>OpenRouter settings</DialogTitle>
             <DialogDescription>
@@ -737,8 +591,8 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="min-w-0 space-y-4 overflow-hidden">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="openrouter-api-key">API key</Label>
               <Input
                 id="openrouter-api-key"
@@ -746,20 +600,22 @@ export default function Home() {
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
                 placeholder="sk-or-v1-..."
+                className="min-w-0"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="openrouter-model">Model slug</Label>
               <Input
                 id="openrouter-model"
                 value={openRouterModelInput}
                 onChange={(event) => setOpenRouterModelInput(event.target.value)}
                 placeholder="anthropic/claude-3.5-sonnet"
+                className="min-w-0"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2 overflow-hidden">
               <div className="flex items-center justify-between">
                 <Label>Available models</Label>
                 <Button
@@ -775,28 +631,56 @@ export default function Home() {
                   Refresh
                 </Button>
               </div>
-              <Select
-                value={selectedOpenRouterModel}
-                onValueChange={(value) => {
-                  setSelectedOpenRouterModel(value);
-                  setOpenRouterModelInput(value);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an OpenRouter model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {openRouterModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                value={openRouterModelSearch}
+                onChange={(event) => setOpenRouterModelSearch(event.target.value)}
+                placeholder="Search models"
+                className="min-w-0"
+              />
+              <div className="max-h-64 min-w-0 overflow-x-hidden overflow-y-auto rounded-md border">
+                {filteredOpenRouterModels.length > 0 ? (
+                  filteredOpenRouterModels.map((model) => {
+                    const isSelected = model.id === selectedOpenRouterModel;
+
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOpenRouterModel(model.id);
+                          setOpenRouterModelInput(model.id);
+                        }}
+                        className={cn(
+                          'flex w-full min-w-0 items-start justify-between gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/60',
+                          isSelected && 'bg-muted'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{model.id}</div>
+                          {model.name && model.name !== model.id ? (
+                            <div className="truncate text-xs text-muted-foreground">
+                              {model.name}
+                            </div>
+                          ) : null}
+                        </div>
+                        {model.context_length ? (
+                          <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                            {model.context_length.toLocaleString()} ctx
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-6 text-sm text-muted-foreground">
+                    No models match your search.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="min-w-0">
             <Button type="button" onClick={handleSaveOpenRouterSettings}>
               Save
             </Button>

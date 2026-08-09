@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
   title: 'Prince Chat',
-  description: 'Chat with locally hosted Ollama models.',
+  description: 'Chat with OpenRouter models.',
 };
 
 export default function RootLayout({
