@@ -37,6 +37,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  Sparkles,
   Square,
   User,
 } from 'lucide-react';
@@ -120,7 +121,7 @@ export default function Home() {
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const { toast } = useToast();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -250,7 +251,18 @@ export default function Home() {
   }, [selectedOpenRouterModel]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!messages.length) return;
+
+    // Scroll only the Radix chat viewport. Element.scrollIntoView() may select
+    // the document as its scroll container, which moves the fixed app header.
+    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
+      '[data-radix-scroll-area-viewport]'
+    );
+
+    viewport?.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages]);
 
   const handleNewChat = () => {
@@ -432,13 +444,23 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b p-4">
-        <div className="flex items-center gap-2">
-          <Bot className="h-8 w-8 text-primary" />
-          <h1 className="text-xl font-semibold">Prince Chat</h1>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="liquid-app">
+      <div className="liquid-orb liquid-orb-one" />
+      <div className="liquid-orb liquid-orb-two" />
+      <div className="liquid-orb liquid-orb-three" />
+
+      <div className="liquid-shell">
+        <header className="liquid-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="brand-mark">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-semibold tracking-[-0.02em]">Prince Chat</h1>
+              <p className="hidden text-xs text-muted-foreground sm:block">Your private AI workspace</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
           <div className="hidden items-center gap-2 md:flex">
             <Input
               value={selectedOpenRouterModel}
@@ -448,7 +470,7 @@ export default function Home() {
                 setOpenRouterModelInput(value);
               }}
               placeholder="openai/gpt-4o-mini"
-              className="w-[260px]"
+              className="liquid-input h-9 w-[260px] rounded-full px-4 text-xs"
             />
           </div>
 
@@ -457,6 +479,7 @@ export default function Home() {
             size="icon"
             onClick={() => setIsOpenRouterDialogOpen(true)}
             aria-label="OpenRouter settings"
+            className="liquid-icon-button h-9 w-9 rounded-full"
           >
             <KeyRound className="h-4 w-4" />
           </Button>
@@ -466,21 +489,34 @@ export default function Home() {
             size="icon"
             onClick={handleNewChat}
             aria-label="New Chat"
+            className="liquid-icon-button h-9 w-9 rounded-full"
           >
             <Plus className="h-5 w-5" />
           </Button>
           <ThemeToggle />
         </div>
-      </header>
+        </header>
 
-      <main className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="space-y-6 p-4 md:p-6">
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <ScrollArea ref={scrollAreaRef} className="h-full">
+          <div className="mx-auto min-h-full w-full max-w-5xl space-y-6 px-4 py-6 md:px-8 md:py-10">
             {messages.length === 0 && (
-              <div className="flex h-[calc(100vh-150px)] flex-col items-center justify-center text-center text-muted-foreground">
-                <Bot className="mb-4 h-16 w-16" />
-                <h2 className="text-2xl font-semibold">Welcome to Prince Chat</h2>
-                <p>Chat with any OpenRouter model using your API key.</p>
+              <div className="empty-state">
+                <div className="empty-state-icon">
+                  <Bot className="h-8 w-8" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.2em] text-primary">OpenRouter workspace</p>
+                  <h2 className="text-3xl font-semibold tracking-[-0.045em] text-foreground sm:text-4xl">How can I help?</h2>
+                  <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">
+                    Choose a model, bring your own key, and make something remarkable.
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 pt-2">
+                  <span className="feature-pill">Private key storage</span>
+                  <span className="feature-pill">Text &amp; image models</span>
+                  <span className="feature-pill">Streaming replies</span>
+                </div>
               </div>
             )}
             {messages.map((message, index) => (
@@ -500,10 +536,10 @@ export default function Home() {
                 )}
                 <div
                   className={cn(
-                    'max-w-xs rounded-xl p-3 shadow-sm md:max-w-3xl',
+                    'message-bubble max-w-[85%] p-4 text-[15px] leading-6 md:max-w-3xl',
                     message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-card'
+                      ? 'message-user'
+                      : 'message-assistant'
                   )}
                 >
                   <div className="flex flex-col gap-2">
@@ -512,7 +548,7 @@ export default function Home() {
                         {message.images.map((image, imageIndex) => (
                           <div
                             key={`${image.url.slice(0, 32)}-${imageIndex}`}
-                            className="overflow-hidden rounded-lg border bg-background"
+                            className="overflow-hidden rounded-2xl border border-white/30 bg-background/30 shadow-sm"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -565,8 +601,8 @@ export default function Home() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleCopy(message.content)}
-                            aria-label="Copy message"
-                            className="h-6 w-6"
+                              aria-label="Copy message"
+                            className="h-7 w-7 rounded-full text-muted-foreground hover:bg-white/30"
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
@@ -584,13 +620,13 @@ export default function Home() {
               </div>
             ))}
           </div>
-          <div ref={messagesEndRef} />
         </ScrollArea>
       </main>
 
-      <footer className="shrink-0 border-t p-4">
-        <div className="mb-3 rounded-lg border bg-muted/40 p-3 md:hidden">
-          <Label htmlFor="mobile-openrouter-model">OpenRouter model</Label>
+      <footer className="liquid-footer">
+        <div className="mx-auto w-full max-w-4xl">
+        <div className="mb-3 rounded-2xl border border-white/40 bg-white/25 p-3 shadow-sm backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-white/5">
+          <Label htmlFor="mobile-openrouter-model" className="text-xs font-medium text-muted-foreground">OpenRouter model</Label>
           <Input
             id="mobile-openrouter-model"
             value={selectedOpenRouterModel}
@@ -600,12 +636,12 @@ export default function Home() {
               setOpenRouterModelInput(value);
             }}
             placeholder="openai/gpt-4o-mini"
-            className="mt-2"
+            className="liquid-input mt-2 h-10 rounded-xl"
           />
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-center gap-2">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="composer-shell">
             <FormField
               control={form.control}
               name="message"
@@ -618,14 +654,14 @@ export default function Home() {
                         autoComplete="off"
                         {...field}
                         disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
-                        className="pr-12"
+                        className="liquid-input h-14 rounded-[1.15rem] border-0 bg-transparent px-5 pr-14 text-[15px] shadow-none focus-visible:ring-0"
                       />
                       {isLoading ? (
                         <Button
                           type="button"
                           size="icon"
                           onClick={handleStopGenerating}
-                          className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 rounded-full bg-destructive hover:bg-destructive/90"
+                          className="absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-destructive shadow-lg shadow-red-500/25 hover:bg-destructive/90"
                           aria-label="Stop generating"
                         >
                           <Square className="h-4 w-4" />
@@ -638,7 +674,7 @@ export default function Home() {
                           disabled={
                             !field.value || !selectedModel || !openRouterApiKey.trim()
                           }
-                          className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 rounded-full bg-primary hover:bg-primary/90"
+                          className="absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-primary shadow-lg shadow-sky-500/30 hover:bg-primary/90"
                           aria-label="Send message"
                         >
                           <ArrowUp className="h-4 w-4" />
@@ -652,15 +688,19 @@ export default function Home() {
             />
           </form>
         </Form>
+        <p className="mt-2 text-center text-[11px] text-muted-foreground/80">
+          Responses can make mistakes. Check important information.
+        </p>
+        </div>
       </footer>
 
       <Dialog
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
+        <DialogContent className="glass-dialog max-h-[90vh] overflow-hidden border-white/50 sm:max-w-2xl dark:border-white/10">
           <DialogHeader>
-            <DialogTitle>OpenRouter settings</DialogTitle>
+            <DialogTitle className="text-xl tracking-[-0.03em]">OpenRouter settings</DialogTitle>
             <DialogDescription>
               Save your API key locally in this browser and choose any model slug.
             </DialogDescription>
@@ -675,7 +715,7 @@ export default function Home() {
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
                 placeholder="sk-or-v1-..."
-                className="min-w-0"
+                className="liquid-input min-w-0 rounded-xl"
               />
             </div>
 
@@ -686,7 +726,7 @@ export default function Home() {
                 value={openRouterModelInput}
                 onChange={(event) => setOpenRouterModelInput(event.target.value)}
                 placeholder="anthropic/claude-3.5-sonnet"
-                className="min-w-0"
+                className="liquid-input min-w-0 rounded-xl"
               />
             </div>
 
@@ -699,6 +739,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => fetchOpenRouterModels(openRouterApiKey)}
                   disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
+                  className="liquid-button rounded-full"
                 >
                   {isFetchingOpenRouterModels ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -710,9 +751,9 @@ export default function Home() {
                 value={openRouterModelSearch}
                 onChange={(event) => setOpenRouterModelSearch(event.target.value)}
                 placeholder="Search models"
-                className="min-w-0"
+                className="liquid-input min-w-0 rounded-xl"
               />
-              <div className="max-h-64 min-w-0 overflow-x-hidden overflow-y-auto rounded-md border">
+              <div className="max-h-64 min-w-0 overflow-x-hidden overflow-y-auto rounded-2xl border border-white/45 bg-white/20 dark:border-white/10 dark:bg-black/10">
                 {filteredOpenRouterModels.length > 0 ? (
                   filteredOpenRouterModels.map((model) => {
                     const isSelected = model.id === selectedOpenRouterModel;
@@ -726,15 +767,15 @@ export default function Home() {
                           setOpenRouterModelInput(model.id);
                         }}
                         className={cn(
-                          'flex w-full min-w-0 items-start justify-between gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/60',
-                          isSelected && 'bg-muted'
+                          'flex w-full min-w-0 items-start justify-between gap-3 border-b border-white/30 px-4 py-3 text-left last:border-b-0 hover:bg-white/35 dark:border-white/10 dark:hover:bg-white/10',
+                          isSelected && 'bg-white/45 dark:bg-white/10'
                         )}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <div className="min-w-0 truncate font-medium">{model.id}</div>
                             {model.architecture?.output_modalities?.includes('image') ? (
-                              <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                                 Image
                               </span>
                             ) : null}
@@ -763,12 +804,13 @@ export default function Home() {
           </div>
 
           <DialogFooter className="min-w-0">
-            <Button type="button" onClick={handleSaveOpenRouterSettings}>
+            <Button type="button" onClick={handleSaveOpenRouterSettings} className="rounded-full px-5 shadow-lg shadow-sky-500/20">
               Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
