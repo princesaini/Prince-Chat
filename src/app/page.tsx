@@ -45,12 +45,20 @@ import { ThemeToggle } from '@/components/theme-toggle';
 type Message = {
   role: 'user' | 'assistant';
   content: string;
+  images?: {
+    url: string;
+    mediaType: string;
+  }[];
 };
 
 type OpenRouterModel = {
   id: string;
   name: string;
   context_length?: number;
+  architecture?: {
+    input_modalities?: string[];
+    output_modalities?: string[];
+  };
 };
 
 const formSchema = z.object({
@@ -125,6 +133,12 @@ export default function Home() {
   const prevIsLoading = useRef(false);
 
   const selectedModel = selectedOpenRouterModel;
+  const selectedModelMetadata = openRouterModels.find(
+    (model) => model.id === selectedModel
+  );
+  const selectedModelOutputsImage =
+    selectedModelMetadata?.architecture?.output_modalities?.includes('image') ??
+    false;
   const filteredOpenRouterModels = openRouterModels.filter((model) => {
     const query = openRouterModelSearch.trim().toLowerCase();
     if (!query) {
@@ -162,7 +176,7 @@ export default function Home() {
     setIsFetchingOpenRouterModels(true);
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/models', {
+      const response = await fetch('/api/openrouter/api/v1/models?output_modalities=all', {
         headers: {
           'x-openrouter-api-key': apiKey.trim(),
         },
@@ -309,41 +323,85 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-openrouter-api-key': openRouterApiKey.trim(),
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: newMessages,
-          stream: true,
-        }),
-        signal: controller.signal,
-      });
+      if (selectedModelOutputsImage) {
+        const response = await fetch('/api/openrouter/api/v1/images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-openrouter-api-key': openRouterApiKey.trim(),
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            prompt: userInput,
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        throw new Error('The request failed.');
-      }
-
-      if (!response.body) {
-        throw new Error('The response body is empty.');
-      }
-
-      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
+        if (!response.ok) {
+          throw new Error('The image generation request failed.');
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        parseOpenRouterChunk(chunk, appendAssistantText);
+        const data = await response.json();
+        const images = Array.isArray(data.data)
+          ? data.data
+              .filter((item: { b64_json?: string }) => Boolean(item?.b64_json))
+              .map(
+                (item: { b64_json: string; media_type?: string }) => ({
+                  url: `data:${item.media_type || 'image/png'};base64,${item.b64_json}`,
+                  mediaType: item.media_type || 'image/png',
+                })
+              )
+          : [];
+
+        if (images.length === 0) {
+          throw new Error('The image generation response did not contain any images.');
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `Generated ${images.length} image${images.length > 1 ? 's' : ''}.`,
+            images,
+          },
+        ]);
+      } else {
+        const response = await fetch('/api/openrouter/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-openrouter-api-key': openRouterApiKey.trim(),
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages: newMessages,
+            stream: true,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error('The request failed.');
+        }
+
+        if (!response.body) {
+          throw new Error('The response body is empty.');
+        }
+
+        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          parseOpenRouterChunk(chunk, appendAssistantText);
+        }
       }
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -442,13 +500,30 @@ export default function Home() {
                 )}
                 <div
                   className={cn(
-                    'max-w-xs rounded-xl p-3 shadow-sm md:max-w-2xl',
+                    'max-w-xs rounded-xl p-3 shadow-sm md:max-w-3xl',
                     message.role === 'user'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-card'
                   )}
                 >
                   <div className="flex flex-col gap-2">
+                    {message.images && message.images.length > 0 ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {message.images.map((image, imageIndex) => (
+                          <div
+                            key={`${image.url.slice(0, 32)}-${imageIndex}`}
+                            className="overflow-hidden rounded-lg border bg-background"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={image.url}
+                              alt={`Generated image ${imageIndex + 1}`}
+                              className="h-auto w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       className="max-w-none"
@@ -656,7 +731,14 @@ export default function Home() {
                         )}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium">{model.id}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="min-w-0 truncate font-medium">{model.id}</div>
+                            {model.architecture?.output_modalities?.includes('image') ? (
+                              <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                Image
+                              </span>
+                            ) : null}
+                          </div>
                           {model.name && model.name !== model.id ? (
                             <div className="truncate text-xs text-muted-foreground">
                               {model.name}
