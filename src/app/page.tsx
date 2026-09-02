@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Dialog,
@@ -69,6 +70,7 @@ const formSchema = z.object({
 const STORAGE_KEYS = {
   openRouterApiKey: 'prince-chat-openrouter-api-key',
   openRouterModel: 'prince-chat-openrouter-model',
+  webSearchEnabled: 'prince-chat-web-search-enabled',
 };
 
 function parseOpenRouterChunk(
@@ -120,6 +122,7 @@ export default function Home() {
   const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -233,10 +236,14 @@ export default function Home() {
       localStorage.getItem(STORAGE_KEYS.openRouterApiKey) ?? '';
     const storedOpenRouterModel =
       localStorage.getItem(STORAGE_KEYS.openRouterModel) ?? '';
+    const storedWebSearchEnabled = localStorage.getItem(
+      STORAGE_KEYS.webSearchEnabled
+    );
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
     setOpenRouterModelInput(storedOpenRouterModel);
     setSelectedOpenRouterModel(storedOpenRouterModel);
+    setWebSearchEnabled(storedWebSearchEnabled !== 'false');
 
     if (storedOpenRouterApiKey) {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
@@ -249,6 +256,13 @@ export default function Home() {
       setOpenRouterModelInput(selectedOpenRouterModel);
     }
   }, [selectedOpenRouterModel]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEYS.webSearchEnabled,
+      String(webSearchEnabled)
+    );
+  }, [webSearchEnabled]);
 
   useEffect(() => {
     if (!messages.length) return;
@@ -388,6 +402,9 @@ export default function Home() {
             model: selectedModel,
             messages: newMessages,
             stream: true,
+            ...(webSearchEnabled
+              ? { tools: [{ type: 'openrouter:web_search' }] }
+              : {}),
           }),
           signal: controller.signal,
         });
@@ -727,6 +744,21 @@ export default function Home() {
                 onChange={(event) => setOpenRouterModelInput(event.target.value)}
                 placeholder="anthropic/claude-3.5-sonnet"
                 className="liquid-input min-w-0 rounded-xl"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/45 bg-white/20 px-4 py-3 dark:border-white/10 dark:bg-black/10">
+              <div className="space-y-1">
+                <Label htmlFor="web-search-enabled">Web search</Label>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Let the model search for current information when it needs it.
+                </p>
+              </div>
+              <Switch
+                id="web-search-enabled"
+                checked={webSearchEnabled}
+                onCheckedChange={setWebSearchEnabled}
+                aria-label="Enable web search"
               />
             </div>
 
