@@ -57,11 +57,38 @@ type OpenRouterModel = {
   id: string;
   name: string;
   context_length?: number;
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+  };
+  reasoning?: {
+    supported_efforts?: ReasoningEffort[] | null;
+    default_effort?: ReasoningEffort;
+    default_enabled?: boolean;
+    mandatory?: boolean;
+  };
   architecture?: {
     input_modalities?: string[];
     output_modalities?: string[];
   };
 };
+
+type ReasoningEffort =
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+const REASONING_EFFORTS: ReasoningEffort[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 
 const formSchema = z.object({
   message: z.string().min(1, 'Message cannot be empty.'),
@@ -71,7 +98,23 @@ const STORAGE_KEYS = {
   openRouterApiKey: 'prince-chat-openrouter-api-key',
   openRouterModel: 'prince-chat-openrouter-model',
   webSearchEnabled: 'prince-chat-web-search-enabled',
+  reasoningEffort: 'prince-chat-reasoning-effort',
 };
+
+function formatPricePerMillion(price?: string) {
+  const pricePerToken = Number(price);
+
+  if (!Number.isFinite(pricePerToken)) {
+    return null;
+  }
+
+  const pricePerMillion = pricePerToken * 1_000_000;
+  const formattedPrice = pricePerMillion.toLocaleString(undefined, {
+    maximumFractionDigits: pricePerMillion >= 1 ? 2 : 4,
+  });
+
+  return `$${formattedPrice}/M`;
+}
 
 function parseOpenRouterChunk(
   chunk: string,
@@ -123,6 +166,7 @@ export default function Home() {
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -143,6 +187,21 @@ export default function Home() {
   const selectedModelOutputsImage =
     selectedModelMetadata?.architecture?.output_modalities?.includes('image') ??
     false;
+  const selectedModelReasoning = selectedModelMetadata?.reasoning;
+  const selectedModelSupportsReasoningEffort =
+    !selectedModelMetadata ||
+    (Boolean(selectedModelReasoning) &&
+      (selectedModelReasoning?.supported_efforts === null ||
+        Boolean(selectedModelReasoning?.supported_efforts?.length)));
+  const reasoningEffortOptions =
+    selectedModelReasoning?.supported_efforts?.length
+      ? selectedModelReasoning.supported_efforts
+      : REASONING_EFFORTS;
+  const selectedReasoningEffortIsAvailable =
+    !reasoningEffort ||
+    selectedModelReasoning?.supported_efforts === null ||
+    !selectedModelReasoning?.supported_efforts?.length ||
+    selectedModelReasoning.supported_efforts.includes(reasoningEffort);
   const filteredOpenRouterModels = openRouterModels.filter((model) => {
     const query = openRouterModelSearch.trim().toLowerCase();
     if (!query) {
@@ -239,11 +298,19 @@ export default function Home() {
     const storedWebSearchEnabled = localStorage.getItem(
       STORAGE_KEYS.webSearchEnabled
     );
+    const storedReasoningEffort = localStorage.getItem(
+      STORAGE_KEYS.reasoningEffort
+    );
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
     setOpenRouterModelInput(storedOpenRouterModel);
     setSelectedOpenRouterModel(storedOpenRouterModel);
     setWebSearchEnabled(storedWebSearchEnabled !== 'false');
+    setReasoningEffort(
+      REASONING_EFFORTS.includes(storedReasoningEffort as ReasoningEffort)
+        ? (storedReasoningEffort as ReasoningEffort)
+        : ''
+    );
 
     if (storedOpenRouterApiKey) {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
@@ -263,6 +330,10 @@ export default function Home() {
       String(webSearchEnabled)
     );
   }, [webSearchEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.reasoningEffort, reasoningEffort);
+  }, [reasoningEffort]);
 
   useEffect(() => {
     if (!messages.length) return;
@@ -404,6 +475,11 @@ export default function Home() {
             stream: true,
             ...(webSearchEnabled
               ? { tools: [{ type: 'openrouter:web_search' }] }
+              : {}),
+            ...(reasoningEffort &&
+            selectedModelSupportsReasoningEffort &&
+            selectedReasoningEffortIsAvailable
+              ? { reasoning: { effort: reasoningEffort } }
               : {}),
           }),
           signal: controller.signal,
@@ -762,6 +838,42 @@ export default function Home() {
               />
             </div>
 
+            <div className="space-y-2 rounded-xl border border-white/45 bg-white/20 px-4 py-3 dark:border-white/10 dark:bg-black/10">
+              <div className="space-y-1">
+                <Label htmlFor="reasoning-effort">Reasoning effort</Label>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {selectedModelSupportsReasoningEffort
+                    ? 'Controls how much the model thinks before answering. Higher effort can improve complex answers and increase output cost.'
+                    : 'This model does not expose configurable reasoning levels.'}
+                </p>
+              </div>
+              <Select
+                value={
+                  reasoningEffort && selectedReasoningEffortIsAvailable
+                    ? reasoningEffort
+                    : 'default'
+                }
+                onValueChange={(value) =>
+                  setReasoningEffort(
+                    value === 'default' ? '' : (value as ReasoningEffort)
+                  )
+                }
+                disabled={!selectedModelSupportsReasoningEffort}
+              >
+                <SelectTrigger id="reasoning-effort" className="liquid-input w-full rounded-xl">
+                  <SelectValue placeholder="Model default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Model default</SelectItem>
+                  {reasoningEffortOptions.map((effort) => (
+                    <SelectItem key={effort} value={effort}>
+                      {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="min-w-0 space-y-2 overflow-hidden">
               <div className="flex items-center justify-between">
                 <Label>Available models</Label>
@@ -789,6 +901,8 @@ export default function Home() {
                 {filteredOpenRouterModels.length > 0 ? (
                   filteredOpenRouterModels.map((model) => {
                     const isSelected = model.id === selectedOpenRouterModel;
+                    const inputPrice = formatPricePerMillion(model.pricing?.prompt);
+                    const outputPrice = formatPricePerMillion(model.pricing?.completion);
 
                     return (
                       <button
@@ -815,6 +929,12 @@ export default function Home() {
                           {model.name && model.name !== model.id ? (
                             <div className="truncate text-xs text-muted-foreground">
                               {model.name}
+                            </div>
+                          ) : null}
+                          {inputPrice || outputPrice ? (
+                            <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+                              {inputPrice ? <span>In {inputPrice}</span> : null}
+                              {outputPrice ? <span>Out {outputPrice}</span> : null}
                             </div>
                           ) : null}
                         </div>
