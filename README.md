@@ -1,25 +1,130 @@
 # Prince Chat
 
-Welcome to Prince Chat, a sleek and modern chat application that allows you to interact with your own locally hosted Ollama models. Built with Next.js and styled with ShadCN UI and Tailwind CSS, Prince Chat provides a beautiful and responsive interface for all your generative AI conversations.
+Prince Chat is a small, private-feeling chat interface for OpenRouter. Add your own OpenRouter API key, choose a model, and start chatting. It is built with Next.js, React, Tailwind CSS, and shadcn/ui.
 
-## Features
+It is designed for people who want a simple way to try different OpenRouter models without configuring environment variables or building their own API client first.
 
-- **Connect to Local Ollama Models:** Seamlessly connect to your Ollama instance running on your local machine.
-- **Dynamic Model Selection:** Automatically fetches a list of your available Ollama models and lets you switch between them on the fly with a convenient dropdown menu.
-- **Real-time Streaming:** Watch the AI's response generate in real-time for a natural and engaging chat experience.
-- **Stop Generation:** Don't like the response? You can stop the generation at any time with a single click.
-- **Copy Responses:** Easily copy the complete response from the AI to your clipboard.
-- **Light & Dark Mode:** Toggle between light and dark themes to suit your preference.
-- **Responsive Design:** Enjoy a consistent experience across all your devices.
+## What you can do
 
-## Getting Started
+- Chat with OpenRouter text models and see responses stream in as they are generated.
+- Pick a model from a searchable list in the top navbar.
+- See each model's input and output price per one million tokens, plus its context-window size.
+- Generate images when you choose a model that supports image output.
+- Turn OpenRouter web search on or off from the response-controls menu.
+- Set a reasoning effort level when the selected model supports it.
+- Stop a response while it is generating.
+- Copy an assistant response with one click.
+- Start a fresh chat at any time.
+- Use the app in light or dark mode on desktop or mobile.
 
-1.  **Run Ollama:** Make sure your local Ollama instance is running.
-2.  **Start the app:**
-    ```bash
-    npm run dev
-    ```
-3.  Open your browser to `http://localhost:9002` and start chatting!
+## Quick start
 
-![image](https://github.com/user-attachments/assets/5cb7e689-3544-4a49-b73f-c949d813bb56)
+You need Node.js and an OpenRouter API key.
 
+1. Install the project dependencies.
+
+   ```bash
+   npm install
+   ```
+
+2. Start the development server.
+
+   ```bash
+   npm run dev
+   ```
+
+3. Open [http://localhost:9002](http://localhost:9002).
+
+4. Select the key icon in the top-right corner, paste your OpenRouter API key, and save it.
+
+5. Select the model button in the navbar, choose a model, then send your first message.
+
+There is no `.env` file to create for normal local use. Your key is entered in the app itself.
+
+## Using the app
+
+### Choose a model
+
+Select the model button in the navbar. The list is searchable and starts with popular models. Each row shows:
+
+- The model ID and name
+- Input and output pricing per 1M tokens
+- Context-window size
+- An `Image` label when the model can generate images
+
+Use the refresh button in the picker after changing your API key or when you want the latest model list.
+
+### Adjust response controls
+
+Select the sliders icon in the navbar to open **Response controls**.
+
+- **Web search** lets a compatible model use OpenRouter's web-search tool for current information.
+- **Reasoning effort** controls how much extra thinking a compatible reasoning model uses. Higher settings may improve difficult answers, but can take longer and cost more. The menu only enables choices that the selected model reports as supported.
+
+These controls apply to the next message you send and are remembered in the current browser.
+
+### Generate an image
+
+Choose a model marked `Image`, then enter a description of the image you want. Prince Chat sends the prompt to OpenRouter's image endpoint and displays the generated images in the conversation.
+
+### Start over
+
+Select the plus icon in the navbar to clear the current conversation. Prince Chat does not keep a chat-history library: messages exist only while the page is open and are cleared when you refresh or close it.
+
+## Privacy and API keys
+
+Your OpenRouter API key, selected model, web-search preference, and reasoning preference are saved in your browser's local storage. The key is sent with requests through the app's local Next.js API route, which forwards the request to OpenRouter.
+
+This is convenient for personal local use, but local storage is not a secure vault. Do not use this setup in a shared browser profile or on a device you do not trust. For a public or multi-user deployment, move key management to a secure server-side authentication flow.
+
+Your prompts and generated responses are sent to OpenRouter and the selected model provider as part of each request. Review OpenRouter's policies and the model provider's policies before sending sensitive information.
+
+## Costs
+
+Prince Chat shows the input and output prices returned by OpenRouter in the model picker. These prices are useful for comparing models, but the final amount charged depends on the tokens and features used in a request. Web search, image generation, and reasoning can add cost.
+
+You are responsible for charges on the OpenRouter account connected to your API key.
+
+## Development commands
+
+```bash
+# Start the local development server on port 9002
+npm run dev
+
+# Check TypeScript types
+npm run typecheck
+
+# Create an optimized production build
+npm run build
+
+# Run the production server after building
+npm run start
+```
+
+## How it works
+
+The browser talks to a small Next.js route under `/api/openrouter`. That route forwards the request to OpenRouter, including your API key in the authorization header. This keeps the browser code simple while preserving streaming responses from the OpenRouter chat endpoint.
+
+The main interface lives in `src/app/page.tsx`, and the OpenRouter forwarding route lives in `src/app/api/openrouter/[[...route]]/route.ts`.
+
+## Troubleshooting
+
+**The model list is empty**
+
+Check that you saved a valid OpenRouter API key, then reopen the model picker and select Refresh.
+
+**I cannot send a message**
+
+Make sure both an API key and a model are selected. The composer stays disabled until both are available.
+
+**A model does not show reasoning controls**
+
+Not every model supports configurable reasoning effort. Choose a reasoning-capable model to enable that control.
+
+**A request fails**
+
+Confirm that your API key is valid, your OpenRouter account has available credits, and the selected model is available to your account.
+
+**The app will not start**
+
+Run `npm install` again, then try `npm run dev`. If the port is already in use, stop the other process using port 9002 or change the port in the `dev` script in `package.json`.
