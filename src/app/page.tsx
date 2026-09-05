@@ -23,6 +23,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -34,12 +39,14 @@ import { cn } from '@/lib/utils';
 import {
   ArrowUp,
   Bot,
+  ChevronDown,
   Copy,
   KeyRound,
   Loader2,
   Plus,
   Sparkles,
   Square,
+  SlidersHorizontal,
   User,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -161,9 +168,9 @@ export default function Home() {
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>('');
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
-  const [openRouterModelInput, setOpenRouterModelInput] = useState('');
   const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
@@ -239,7 +246,7 @@ export default function Home() {
     setIsFetchingOpenRouterModels(true);
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/models?output_modalities=all', {
+      const response = await fetch('/api/openrouter/api/v1/models?output_modalities=all&sort=most-popular', {
         headers: {
           'x-openrouter-api-key': apiKey.trim(),
         },
@@ -303,7 +310,6 @@ export default function Home() {
     );
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
-    setOpenRouterModelInput(storedOpenRouterModel);
     setSelectedOpenRouterModel(storedOpenRouterModel);
     setWebSearchEnabled(storedWebSearchEnabled !== 'false');
     setReasoningEffort(
@@ -320,7 +326,6 @@ export default function Home() {
   useEffect(() => {
     if (selectedOpenRouterModel) {
       localStorage.setItem(STORAGE_KEYS.openRouterModel, selectedOpenRouterModel);
-      setOpenRouterModelInput(selectedOpenRouterModel);
     }
   }, [selectedOpenRouterModel]);
 
@@ -361,12 +366,8 @@ export default function Home() {
 
   const handleSaveOpenRouterSettings = async () => {
     const sanitizedApiKey = openRouterApiKey.trim();
-    const sanitizedModel = openRouterModelInput.trim();
 
     localStorage.setItem(STORAGE_KEYS.openRouterApiKey, sanitizedApiKey);
-    localStorage.setItem(STORAGE_KEYS.openRouterModel, sanitizedModel);
-
-    setSelectedOpenRouterModel(sanitizedModel);
     setIsOpenRouterDialogOpen(false);
 
     if (sanitizedApiKey) {
@@ -376,8 +377,8 @@ export default function Home() {
     }
 
     toast({
-      title: 'OpenRouter settings saved',
-      description: 'Your API key and selected model are stored in this browser.',
+      title: 'OpenRouter API key saved',
+      description: 'Your key is stored locally in this browser.',
       duration: 2000,
     });
   };
@@ -548,24 +549,182 @@ export default function Home() {
             <div className="brand-mark">
               <Sparkles className="h-4 w-4" />
             </div>
-            <div className="min-w-0">
+            <div className="hidden min-w-0 min-[390px]:block">
               <h1 className="text-[15px] font-semibold tracking-[-0.02em]">Prince Chat</h1>
               <p className="hidden text-xs text-muted-foreground sm:block">Your private AI workspace</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-2 md:flex">
-            <Input
-              value={selectedOpenRouterModel}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSelectedOpenRouterModel(value);
-                setOpenRouterModelInput(value);
-              }}
-              placeholder="openai/gpt-4o-mini"
-              className="liquid-input h-9 w-[260px] rounded-full px-4 text-xs"
-            />
-          </div>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <Popover open={isModelPickerOpen} onOpenChange={setIsModelPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="liquid-input h-9 w-9 rounded-full px-0 text-xs sm:w-auto sm:max-w-[270px] sm:px-3"
+                  aria-label="Choose model"
+                >
+                  <Bot className="h-4 w-4 shrink-0 sm:mr-2" />
+                  <span className="hidden min-w-0 truncate sm:block">
+                    {selectedModelMetadata?.name || selectedOpenRouterModel || 'Choose model'}
+                  </span>
+                  <ChevronDown className="ml-2 hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="glass-dialog w-[min(92vw,32rem)] border-white/50 p-3 dark:border-white/10"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                  <div>
+                    <p className="text-sm font-semibold">Choose a model</p>
+                    <p className="text-xs text-muted-foreground">Prices are per million tokens.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchOpenRouterModels(openRouterApiKey)}
+                    disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
+                    className="liquid-button shrink-0 rounded-full"
+                  >
+                    {isFetchingOpenRouterModels ? (
+                      <Loader2 className="h-4 w-4 animate-spin sm:mr-2" />
+                    ) : null}
+                    <span className="hidden sm:inline">Refresh</span>
+                    <span className="sm:hidden">Reload</span>
+                  </Button>
+                </div>
+                <Input
+                  value={openRouterModelSearch}
+                  onChange={(event) => setOpenRouterModelSearch(event.target.value)}
+                  placeholder="Search models"
+                  className="liquid-input mb-2 min-w-0 rounded-xl"
+                />
+                <div className="max-h-[min(60vh,30rem)] min-w-0 overflow-x-hidden overflow-y-auto rounded-2xl border border-white/45 bg-white/20 dark:border-white/10 dark:bg-black/10">
+                  {filteredOpenRouterModels.length > 0 ? (
+                    filteredOpenRouterModels.map((model) => {
+                      const isSelected = model.id === selectedOpenRouterModel;
+                      const inputPrice = formatPricePerMillion(model.pricing?.prompt);
+                      const outputPrice = formatPricePerMillion(model.pricing?.completion);
+
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedOpenRouterModel(model.id);
+                            setIsModelPickerOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full min-w-0 items-start justify-between gap-3 border-b border-white/30 px-4 py-3 text-left last:border-b-0 hover:bg-white/35 dark:border-white/10 dark:hover:bg-white/10',
+                            isSelected && 'bg-white/45 dark:bg-white/10'
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <div className="min-w-0 truncate font-medium">{model.id}</div>
+                              {model.architecture?.output_modalities?.includes('image') ? (
+                                <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                  Image
+                                </span>
+                              ) : null}
+                            </div>
+                            {model.name && model.name !== model.id ? (
+                              <div className="truncate text-xs text-muted-foreground">{model.name}</div>
+                            ) : null}
+                            {inputPrice || outputPrice ? (
+                              <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+                                {inputPrice ? <span>In {inputPrice}</span> : null}
+                                {outputPrice ? <span>Out {outputPrice}</span> : null}
+                              </div>
+                            ) : null}
+                          </div>
+                          {model.context_length ? (
+                            <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                              {model.context_length.toLocaleString()} ctx
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-4 py-7 text-center text-sm text-muted-foreground">
+                      {openRouterApiKey.trim()
+                        ? 'No models match your search.'
+                        : 'Add an OpenRouter API key to load models.'}
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Response controls"
+                  className="liquid-icon-button h-9 w-9 rounded-full"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="glass-dialog w-[min(92vw,22rem)] border-white/50 p-4 dark:border-white/10"
+              >
+                <div className="mb-4">
+                  <p className="text-sm font-semibold">Response controls</p>
+                  <p className="text-xs text-muted-foreground">Applied to your next message.</p>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="navbar-web-search">Web search</Label>
+                      <p className="text-xs leading-5 text-muted-foreground">Allow current web information.</p>
+                    </div>
+                    <Switch
+                      id="navbar-web-search"
+                      checked={webSearchEnabled}
+                      onCheckedChange={setWebSearchEnabled}
+                      aria-label="Enable web search"
+                    />
+                  </div>
+                  <div className="space-y-2 border-t border-white/35 pt-4 dark:border-white/10">
+                    <div className="space-y-1">
+                      <Label htmlFor="navbar-reasoning-effort">Reasoning effort</Label>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {selectedModelSupportsReasoningEffort
+                          ? 'Higher effort can improve complex answers and increase output cost.'
+                          : 'This model does not expose configurable reasoning levels.'}
+                      </p>
+                    </div>
+                    <Select
+                      value={
+                        reasoningEffort && selectedReasoningEffortIsAvailable
+                          ? reasoningEffort
+                          : 'default'
+                      }
+                      onValueChange={(value) =>
+                        setReasoningEffort(value === 'default' ? '' : (value as ReasoningEffort))
+                      }
+                      disabled={!selectedModelSupportsReasoningEffort}
+                    >
+                      <SelectTrigger id="navbar-reasoning-effort" className="liquid-input w-full rounded-xl">
+                        <SelectValue placeholder="Model default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Model default</SelectItem>
+                        {reasoningEffortOptions.map((effort) => (
+                          <SelectItem key={effort} value={effort}>
+                            {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
 
           <Button
             variant="outline"
@@ -718,21 +877,6 @@ export default function Home() {
 
       <footer className="liquid-footer">
         <div className="mx-auto w-full max-w-4xl">
-        <div className="mb-3 rounded-2xl border border-white/40 bg-white/25 p-3 shadow-sm backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-white/5">
-          <Label htmlFor="mobile-openrouter-model" className="text-xs font-medium text-muted-foreground">OpenRouter model</Label>
-          <Input
-            id="mobile-openrouter-model"
-            value={selectedOpenRouterModel}
-            onChange={(event) => {
-              const value = event.target.value;
-              setSelectedOpenRouterModel(value);
-              setOpenRouterModelInput(value);
-            }}
-            placeholder="openai/gpt-4o-mini"
-            className="liquid-input mt-2 h-10 rounded-xl"
-          />
-        </div>
-
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="composer-shell">
             <FormField
@@ -791,15 +935,15 @@ export default function Home() {
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent className="glass-dialog max-h-[90vh] overflow-hidden border-white/50 sm:max-w-2xl dark:border-white/10">
+        <DialogContent className="glass-dialog border-white/50 sm:max-w-md dark:border-white/10">
           <DialogHeader>
-            <DialogTitle className="text-xl tracking-[-0.03em]">OpenRouter settings</DialogTitle>
+            <DialogTitle className="text-xl tracking-[-0.03em]">OpenRouter API key</DialogTitle>
             <DialogDescription>
-              Save your API key locally in this browser and choose any model slug.
+              Your key is stored locally in this browser. Choose a model and response controls from the navbar.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-w-0 space-y-4 overflow-hidden">
+          <div className="min-w-0">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="openrouter-api-key">API key</Label>
               <Input
@@ -810,148 +954,6 @@ export default function Home() {
                 placeholder="sk-or-v1-..."
                 className="liquid-input min-w-0 rounded-xl"
               />
-            </div>
-
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="openrouter-model">Model slug</Label>
-              <Input
-                id="openrouter-model"
-                value={openRouterModelInput}
-                onChange={(event) => setOpenRouterModelInput(event.target.value)}
-                placeholder="anthropic/claude-3.5-sonnet"
-                className="liquid-input min-w-0 rounded-xl"
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/45 bg-white/20 px-4 py-3 dark:border-white/10 dark:bg-black/10">
-              <div className="space-y-1">
-                <Label htmlFor="web-search-enabled">Web search</Label>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Let the model search for current information when it needs it.
-                </p>
-              </div>
-              <Switch
-                id="web-search-enabled"
-                checked={webSearchEnabled}
-                onCheckedChange={setWebSearchEnabled}
-                aria-label="Enable web search"
-              />
-            </div>
-
-            <div className="space-y-2 rounded-xl border border-white/45 bg-white/20 px-4 py-3 dark:border-white/10 dark:bg-black/10">
-              <div className="space-y-1">
-                <Label htmlFor="reasoning-effort">Reasoning effort</Label>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {selectedModelSupportsReasoningEffort
-                    ? 'Controls how much the model thinks before answering. Higher effort can improve complex answers and increase output cost.'
-                    : 'This model does not expose configurable reasoning levels.'}
-                </p>
-              </div>
-              <Select
-                value={
-                  reasoningEffort && selectedReasoningEffortIsAvailable
-                    ? reasoningEffort
-                    : 'default'
-                }
-                onValueChange={(value) =>
-                  setReasoningEffort(
-                    value === 'default' ? '' : (value as ReasoningEffort)
-                  )
-                }
-                disabled={!selectedModelSupportsReasoningEffort}
-              >
-                <SelectTrigger id="reasoning-effort" className="liquid-input w-full rounded-xl">
-                  <SelectValue placeholder="Model default" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Model default</SelectItem>
-                  {reasoningEffortOptions.map((effort) => (
-                    <SelectItem key={effort} value={effort}>
-                      {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="min-w-0 space-y-2 overflow-hidden">
-              <div className="flex items-center justify-between">
-                <Label>Available models</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchOpenRouterModels(openRouterApiKey)}
-                  disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
-                  className="liquid-button rounded-full"
-                >
-                  {isFetchingOpenRouterModels ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Refresh
-                </Button>
-              </div>
-              <Input
-                value={openRouterModelSearch}
-                onChange={(event) => setOpenRouterModelSearch(event.target.value)}
-                placeholder="Search models"
-                className="liquid-input min-w-0 rounded-xl"
-              />
-              <div className="max-h-64 min-w-0 overflow-x-hidden overflow-y-auto rounded-2xl border border-white/45 bg-white/20 dark:border-white/10 dark:bg-black/10">
-                {filteredOpenRouterModels.length > 0 ? (
-                  filteredOpenRouterModels.map((model) => {
-                    const isSelected = model.id === selectedOpenRouterModel;
-                    const inputPrice = formatPricePerMillion(model.pricing?.prompt);
-                    const outputPrice = formatPricePerMillion(model.pricing?.completion);
-
-                    return (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedOpenRouterModel(model.id);
-                          setOpenRouterModelInput(model.id);
-                        }}
-                        className={cn(
-                          'flex w-full min-w-0 items-start justify-between gap-3 border-b border-white/30 px-4 py-3 text-left last:border-b-0 hover:bg-white/35 dark:border-white/10 dark:hover:bg-white/10',
-                          isSelected && 'bg-white/45 dark:bg-white/10'
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <div className="min-w-0 truncate font-medium">{model.id}</div>
-                            {model.architecture?.output_modalities?.includes('image') ? (
-                                <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-                                Image
-                              </span>
-                            ) : null}
-                          </div>
-                          {model.name && model.name !== model.id ? (
-                            <div className="truncate text-xs text-muted-foreground">
-                              {model.name}
-                            </div>
-                          ) : null}
-                          {inputPrice || outputPrice ? (
-                            <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
-                              {inputPrice ? <span>In {inputPrice}</span> : null}
-                              {outputPrice ? <span>Out {outputPrice}</span> : null}
-                            </div>
-                          ) : null}
-                        </div>
-                        {model.context_length ? (
-                          <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                            {model.context_length.toLocaleString()} ctx
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-6 text-sm text-muted-foreground">
-                    No models match your search.
-                  </div>
-                )}
-              </div>
             </div>
           </div>
 
