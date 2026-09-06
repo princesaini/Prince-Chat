@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -41,23 +41,36 @@ import {
   Bot,
   ChevronDown,
   Copy,
+  FileText,
+  Image as ImageIcon,
   KeyRound,
   Loader2,
+  Paperclip,
   Plus,
   Sparkles,
   Square,
   SlidersHorizontal,
   User,
+  X,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 type Message = {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Attachment[];
   images?: {
     url: string;
     mediaType: string;
   }[];
+};
+
+type Attachment = {
+  id: string;
+  name: string;
+  mediaType: string;
+  dataUrl: string;
+  kind: 'image' | 'file';
 };
 
 type OpenRouterModel = {
@@ -98,8 +111,51 @@ const REASONING_EFFORTS: ReasoningEffort[] = [
 ];
 
 const formSchema = z.object({
-  message: z.string().min(1, 'Message cannot be empty.'),
+  message: z.string(),
 });
+
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+const SUPPORTED_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+
+function isImageAttachment(attachment: Attachment) {
+  return attachment.kind === 'image';
+}
+
+function toOpenRouterMessage(message: Message) {
+  if (!message.attachments?.length) {
+    return { role: message.role, content: message.content };
+  }
+
+  return {
+    role: message.role,
+    content: [
+      {
+        type: 'text',
+        text: message.content || 'Please analyze the attached file(s).',
+      },
+      ...message.attachments.map((attachment) =>
+        isImageAttachment(attachment)
+          ? {
+              type: 'image_url',
+              image_url: { url: attachment.dataUrl },
+            }
+          : {
+              type: 'file',
+              file: {
+                filename: attachment.name,
+                file_data: attachment.dataUrl,
+              },
+            }
+      ),
+    ],
+  };
+}
 
 const STORAGE_KEYS = {
   openRouterApiKey: 'prince-chat-openrouter-api-key',
@@ -174,9 +230,11 @@ export default function Home() {
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -194,6 +252,22 @@ export default function Home() {
   const selectedModelOutputsImage =
     selectedModelMetadata?.architecture?.output_modalities?.includes('image') ??
     false;
+  const selectedModelSupportsImageInput =
+    selectedModelMetadata?.architecture?.input_modalities?.includes('image') ??
+    false;
+  const selectedModelSupportsFileInput =
+    selectedModelMetadata?.architecture?.input_modalities?.includes('file') ??
+    false;
+  const selectedModelSupportsAttachments =
+    selectedModelSupportsImageInput || selectedModelSupportsFileInput;
+  const attachmentAccept = [
+    selectedModelSupportsImageInput
+      ? 'image/png,image/jpeg,image/webp,image/gif'
+      : '',
+    selectedModelSupportsFileInput ? 'application/pdf' : '',
+  ]
+    .filter(Boolean)
+    .join(',');
   const selectedModelReasoning = selectedModelMetadata?.reasoning;
   const selectedModelSupportsReasoningEffort =
     !selectedModelMetadata ||
@@ -341,6 +415,28 @@ export default function Home() {
   }, [reasoningEffort]);
 
   useEffect(() => {
+    const unsupportedAttachments = pendingAttachments.filter(
+      (attachment) =>
+        (attachment.kind === 'image' && !selectedModelSupportsImageInput) ||
+        (attachment.kind === 'file' && !selectedModelSupportsFileInput)
+    );
+
+    if (unsupportedAttachments.length) {
+      setPendingAttachments([]);
+      toast({
+        title: 'Attachments removed',
+        description: 'The newly selected model does not support those attachment types.',
+        duration: 3000,
+      });
+    }
+  }, [
+    pendingAttachments,
+    selectedModelSupportsFileInput,
+    selectedModelSupportsImageInput,
+    toast,
+  ]);
+
+  useEffect(() => {
     if (!messages.length) return;
 
     // Scroll only the Radix chat viewport. Element.scrollIntoView() may select
@@ -357,7 +453,90 @@ export default function Home() {
 
   const handleNewChat = () => {
     setMessages([]);
+    setPendingAttachments([]);
     form.reset();
+  };
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id)
+    );
+  };
+
+  const handleAttachmentChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+
+    if (!files.length) {
+      return;
+    }
+
+    const availableSlots = MAX_ATTACHMENTS - pendingAttachments.length;
+    if (availableSlots <= 0) {
+      toast({
+        variant: 'destructive',
+        title: `You can attach up to ${MAX_ATTACHMENTS} files.`,
+      });
+      return;
+    }
+
+    const acceptedFiles = files.slice(0, availableSlots).filter((file) => {
+      const isImage = SUPPORTED_IMAGE_TYPES.has(file.type);
+      const isPdf = file.type === 'application/pdf';
+      const supportedByModel =
+        (isImage && selectedModelSupportsImageInput) ||
+        (isPdf && selectedModelSupportsFileInput);
+
+      if (!isImage && !isPdf) {
+        toast({
+          variant: 'destructive',
+          title: 'Unsupported attachment',
+          description: `${file.name} is not a supported image or PDF.`,
+        });
+        return false;
+      }
+
+      if (!supportedByModel) {
+        toast({
+          variant: 'destructive',
+          title: 'Model does not support this attachment',
+          description: `${selectedModelMetadata?.name || 'This model'} cannot receive ${isImage ? 'images' : 'PDF documents'}.`,
+        });
+        return false;
+      }
+
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        toast({
+          variant: 'destructive',
+          title: 'Attachment is too large',
+          description: `${file.name} must be 10 MB or smaller.`,
+        });
+        return false;
+      }
+
+      return true;
+    });
+
+    const attachments = await Promise.all(
+      acceptedFiles.map(
+        (file) =>
+          new Promise<Attachment>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+                name: file.name,
+                mediaType: file.type,
+                dataUrl: String(reader.result),
+                kind: SUPPORTED_IMAGE_TYPES.has(file.type) ? 'image' : 'file',
+              });
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+
+    setPendingAttachments((current) => [...current, ...attachments]);
   };
 
   const handleStopGenerating = () => {
@@ -407,13 +586,20 @@ export default function Home() {
       return;
     }
 
-    const userInput = values.message;
+    const userInput = values.message.trim();
+    if (!userInput && pendingAttachments.length === 0) {
+      return;
+    }
+
+    const hasAttachments = pendingAttachments.length > 0;
+
     const newMessages: Message[] = [
       ...messages,
-      { role: 'user', content: userInput },
+      { role: 'user', content: userInput, attachments: pendingAttachments },
     ];
 
     setMessages(newMessages);
+    setPendingAttachments([]);
     form.reset();
     setIsLoading(true);
 
@@ -421,7 +607,9 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      if (selectedModelOutputsImage) {
+      // Image-capable generation models can also accept image/file input. Those
+      // requests use chat completions; only prompt-only requests use /images.
+      if (selectedModelOutputsImage && !hasAttachments) {
         const response = await fetch('/api/openrouter/api/v1/images', {
           method: 'POST',
           headers: {
@@ -472,7 +660,7 @@ export default function Home() {
           },
           body: JSON.stringify({
             model: selectedModel,
-            messages: newMessages,
+            messages: newMessages.map(toOpenRouterMessage),
             stream: true,
             ...(webSearchEnabled
               ? { tools: [{ type: 'openrouter:web_search' }] }
@@ -625,6 +813,16 @@ export default function Home() {
                               {model.architecture?.output_modalities?.includes('image') ? (
                                 <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                                   Image
+                                </span>
+                              ) : null}
+                              {model.architecture?.input_modalities?.includes('image') ? (
+                                <span className="shrink-0 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                                  Vision
+                                </span>
+                              ) : null}
+                              {model.architecture?.input_modalities?.includes('file') ? (
+                                <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                  Files
                                 </span>
                               ) : null}
                             </div>
@@ -795,6 +993,33 @@ export default function Home() {
                   )}
                 >
                   <div className="flex flex-col gap-2">
+                    {message.attachments && message.attachments.length > 0 ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {message.attachments.map((attachment) =>
+                          attachment.kind === 'image' ? (
+                            <div
+                              key={attachment.id}
+                              className="overflow-hidden rounded-2xl border border-white/30 bg-background/30 shadow-sm"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={attachment.dataUrl}
+                                alt={attachment.name}
+                                className="max-h-72 w-full object-contain"
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              key={attachment.id}
+                              className="flex min-w-0 items-center gap-2 rounded-xl border border-white/30 bg-background/30 px-3 py-2 text-sm"
+                            >
+                              <FileText className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{attachment.name}</span>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : null}
                     {message.images && message.images.length > 0 ? (
                       <div className="grid gap-3 sm:grid-cols-2">
                         {message.images.map((image, imageIndex) => (
@@ -877,8 +1102,50 @@ export default function Home() {
 
       <footer className="liquid-footer">
         <div className="mx-auto w-full max-w-4xl">
+        {pendingAttachments.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2 px-1">
+            {pendingAttachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="flex max-w-full items-center gap-2 rounded-xl border border-white/40 bg-white/35 px-2 py-1.5 text-xs shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20"
+              >
+                {attachment.kind === 'image' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={attachment.dataUrl}
+                    alt=""
+                    className="h-8 w-8 rounded-md object-cover"
+                  />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0" />
+                )}
+                <span className="max-w-40 truncate">{attachment.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removePendingAttachment(attachment.id)}
+                  className="h-6 w-6 shrink-0 rounded-full"
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="composer-shell">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept={attachmentAccept}
+              multiple
+              onChange={handleAttachmentChange}
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
+            />
             <FormField
               control={form.control}
               name="message"
@@ -886,12 +1153,43 @@ export default function Home() {
                 <FormItem className="flex-1">
                   <FormControl>
                     <div className="relative">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => attachmentInputRef.current?.click()}
+                        disabled={
+                          isLoading ||
+                          !selectedModelSupportsAttachments ||
+                          !openRouterApiKey.trim()
+                        }
+                        className="absolute left-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-white/30"
+                        aria-label="Add images or PDF documents"
+                        title={
+                          selectedModelSupportsAttachments
+                            ? 'Add images or PDF documents'
+                            : 'Choose a chat model that supports image or file input to add attachments'
+                        }
+                      >
+                        {selectedModelSupportsImageInput && selectedModelSupportsFileInput ? (
+                          <Paperclip className="h-4 w-4" />
+                        ) : selectedModelSupportsImageInput ? (
+                          <ImageIcon className="h-4 w-4" />
+                        ) : (
+                          <FileText className="h-4 w-4" />
+                        )}
+                        <span className="sr-only">Add attachment</span>
+                      </Button>
                       <Input
-                        placeholder="Ask me anything"
+                        placeholder={
+                          selectedModelSupportsAttachments
+                            ? 'Ask about an image or PDF'
+                            : 'Ask me anything'
+                        }
                         autoComplete="off"
                         {...field}
                         disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
-                        className="liquid-input h-14 rounded-[1.15rem] border-0 bg-transparent px-5 pr-14 text-[15px] shadow-none focus-visible:ring-0"
+                        className="liquid-input h-14 rounded-[1.15rem] border-0 bg-transparent pl-14 pr-14 text-[15px] shadow-none focus-visible:ring-0"
                       />
                       {isLoading ? (
                         <Button
@@ -909,7 +1207,9 @@ export default function Home() {
                           type="submit"
                           size="icon"
                           disabled={
-                            !field.value || !selectedModel || !openRouterApiKey.trim()
+                            (!field.value.trim() && pendingAttachments.length === 0) ||
+                            !selectedModel ||
+                            !openRouterApiKey.trim()
                           }
                           className="absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-primary shadow-lg shadow-sky-500/30 hover:bg-primary/90"
                           aria-label="Send message"
