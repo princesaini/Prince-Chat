@@ -39,17 +39,20 @@ import { cn } from '@/lib/utils';
 import {
   ArrowUp,
   Bot,
+  Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   FileText,
   Image as ImageIcon,
   KeyRound,
   Loader2,
   Paperclip,
   Plus,
+  Search,
+  SlidersHorizontal,
   Sparkles,
   Square,
-  SlidersHorizontal,
   User,
   X,
 } from 'lucide-react';
@@ -218,6 +221,54 @@ function parseOpenRouterChunk(
   }
 }
 
+function CodeSnippet({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const language = className ? className.replace(/language-/, '') : '';
+  const textContent = String(children).replace(/\n$/, '');
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(textContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="my-3 overflow-hidden rounded-xl border border-border bg-muted/40 dark:bg-zinc-950">
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/70 px-3.5 py-1.5 text-xs text-muted-foreground dark:bg-zinc-900">
+        <span className="font-mono text-[11px] uppercase tracking-wider">
+          {language || 'code'}
+        </span>
+        <button
+          type="button"
+          onClick={copyCode}
+          className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-background hover:text-foreground"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-500" />
+              <span>Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" />
+              <span>Copy code</span>
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-foreground">
+        <code>{children}</code>
+      </pre>
+    </div>
+  );
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -320,11 +371,14 @@ export default function Home() {
     setIsFetchingOpenRouterModels(true);
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/models?output_modalities=all&sort=most-popular', {
-        headers: {
-          'x-openrouter-api-key': apiKey.trim(),
-        },
-      });
+      const response = await fetch(
+        '/api/openrouter/api/v1/models?output_modalities=all&sort=most-popular',
+        {
+          headers: {
+            'x-openrouter-api-key': apiKey.trim(),
+          },
+        }
+      );
 
       if (!response.ok) {
         throw new Error('Failed to fetch models from OpenRouter.');
@@ -439,8 +493,6 @@ export default function Home() {
   useEffect(() => {
     if (!messages.length) return;
 
-    // Scroll only the Radix chat viewport. Element.scrollIntoView() may select
-    // the document as its scroll container, which moves the fixed app header.
     const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
       '[data-radix-scroll-area-viewport]'
     );
@@ -500,7 +552,9 @@ export default function Home() {
         toast({
           variant: 'destructive',
           title: 'Model does not support this attachment',
-          description: `${selectedModelMetadata?.name || 'This model'} cannot receive ${isImage ? 'images' : 'PDF documents'}.`,
+          description: `${selectedModelMetadata?.name || 'This model'} cannot receive ${
+            isImage ? 'images' : 'PDF documents'
+          }.`,
         });
         return false;
       }
@@ -571,7 +625,7 @@ export default function Home() {
       toast({
         variant: 'destructive',
         title: 'No model selected.',
-        description: 'Please enter or select an OpenRouter model first.',
+        description: 'Please select an OpenRouter model first.',
       });
       return;
     }
@@ -607,8 +661,6 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      // Image-capable generation models can also accept image/file input. Those
-      // requests use chat completions; only prompt-only requests use /images.
       if (selectedModelOutputsImage && !hasAttachments) {
         const response = await fetch('/api/openrouter/api/v1/images', {
           method: 'POST',
@@ -725,546 +777,653 @@ export default function Home() {
     });
   };
 
-  return (
-    <div className="liquid-app">
-      <div className="liquid-orb liquid-orb-one" />
-      <div className="liquid-orb liquid-orb-two" />
-      <div className="liquid-orb liquid-orb-three" />
+  const handleSelectSuggestedPrompt = (prompt: string) => {
+    form.setValue('message', prompt);
+    form.setFocus('message');
+  };
 
-      <div className="liquid-shell">
-        <header className="liquid-header">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="brand-mark">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div className="hidden min-w-0 min-[390px]:block">
-              <h1 className="text-[15px] font-semibold tracking-[-0.02em]">Prince Chat</h1>
-              <p className="hidden text-xs text-muted-foreground sm:block">Your private AI workspace</p>
-            </div>
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      {/* Top Navigation Bar */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
+            <Sparkles className="h-4 w-4" />
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <Popover open={isModelPickerOpen} onOpenChange={setIsModelPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="liquid-input h-9 w-9 rounded-full px-0 text-xs sm:w-auto sm:max-w-[270px] sm:px-3"
-                  aria-label="Choose model"
-                >
-                  <Bot className="h-4 w-4 shrink-0 sm:mr-2" />
-                  <span className="hidden min-w-0 truncate sm:block">
-                    {selectedModelMetadata?.name || selectedOpenRouterModel || 'Choose model'}
-                  </span>
-                  <ChevronDown className="ml-2 hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:block" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="glass-dialog w-[min(92vw,32rem)] border-white/50 p-3 dark:border-white/10"
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold tracking-tight">Prince Chat</h1>
+            <span className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase sm:inline-block">
+              OpenRouter
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          {/* Model Selector Popover */}
+          <Popover open={isModelPickerOpen} onOpenChange={setIsModelPickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-9 max-w-[180px] justify-between gap-1.5 rounded-lg border-border px-2.5 text-xs font-medium hover:bg-accent sm:max-w-[280px] sm:px-3"
+                aria-label="Choose model"
               >
-                <div className="mb-3 flex items-center justify-between gap-3 px-1">
-                  <div>
-                    <p className="text-sm font-semibold">Choose a model</p>
-                    <p className="text-xs text-muted-foreground">Prices are per million tokens.</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fetchOpenRouterModels(openRouterApiKey)}
-                    disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
-                    className="liquid-button shrink-0 rounded-full"
-                  >
-                    {isFetchingOpenRouterModels ? (
-                      <Loader2 className="h-4 w-4 animate-spin sm:mr-2" />
-                    ) : null}
-                    <span className="hidden sm:inline">Refresh</span>
-                    <span className="sm:hidden">Reload</span>
-                  </Button>
+                <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">
+                  {selectedModelMetadata?.name || selectedOpenRouterModel || 'Select model'}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[min(94vw,34rem)] rounded-xl border border-border bg-popover p-3 shadow-lg"
+            >
+              <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Select Model</p>
+                  <p className="text-xs text-muted-foreground">Prices are per 1M tokens.</p>
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchOpenRouterModels(openRouterApiKey)}
+                  disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
+                  className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+                >
+                  {isFetchingOpenRouterModels ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  <span>Refresh</span>
+                </Button>
+              </div>
+
+              <div className="relative mb-2">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={openRouterModelSearch}
                   onChange={(event) => setOpenRouterModelSearch(event.target.value)}
-                  placeholder="Search models"
-                  className="liquid-input mb-2 min-w-0 rounded-xl"
+                  placeholder="Search available models..."
+                  className="h-9 rounded-lg pl-8 text-xs"
                 />
-                <div className="max-h-[min(60vh,30rem)] min-w-0 overflow-x-hidden overflow-y-auto rounded-2xl border border-white/45 bg-white/20 dark:border-white/10 dark:bg-black/10">
-                  {filteredOpenRouterModels.length > 0 ? (
-                    filteredOpenRouterModels.map((model) => {
-                      const isSelected = model.id === selectedOpenRouterModel;
-                      const inputPrice = formatPricePerMillion(model.pricing?.prompt);
-                      const outputPrice = formatPricePerMillion(model.pricing?.completion);
+              </div>
 
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedOpenRouterModel(model.id);
-                            setIsModelPickerOpen(false);
-                          }}
-                          className={cn(
-                            'flex w-full min-w-0 items-start justify-between gap-3 border-b border-white/30 px-4 py-3 text-left last:border-b-0 hover:bg-white/35 dark:border-white/10 dark:hover:bg-white/10',
-                            isSelected && 'bg-white/45 dark:bg-white/10'
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <div className="min-w-0 truncate font-medium">{model.id}</div>
-                              {model.architecture?.output_modalities?.includes('image') ? (
-                                <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-                                  Image
-                                </span>
-                              ) : null}
-                              {model.architecture?.input_modalities?.includes('image') ? (
-                                <span className="shrink-0 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
-                                  Vision
-                                </span>
-                              ) : null}
-                              {model.architecture?.input_modalities?.includes('file') ? (
-                                <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                                  Files
-                                </span>
-                              ) : null}
-                            </div>
-                            {model.name && model.name !== model.id ? (
-                              <div className="truncate text-xs text-muted-foreground">{model.name}</div>
+              <div className="max-h-[min(55vh,26rem)] overflow-y-auto rounded-lg border border-border/70 bg-card divide-y divide-border/60">
+                {filteredOpenRouterModels.length > 0 ? (
+                  filteredOpenRouterModels.map((model) => {
+                    const isSelected = model.id === selectedOpenRouterModel;
+                    const inputPrice = formatPricePerMillion(model.pricing?.prompt);
+                    const outputPrice = formatPricePerMillion(model.pricing?.completion);
+
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOpenRouterModel(model.id);
+                          setIsModelPickerOpen(false);
+                        }}
+                        className={cn(
+                          'flex w-full items-start justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/70',
+                          isSelected && 'bg-accent/90'
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="truncate text-xs font-semibold text-foreground">
+                              {model.id}
+                            </span>
+                            {model.architecture?.output_modalities?.includes('image') ? (
+                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                                Image
+                              </span>
                             ) : null}
-                            {inputPrice || outputPrice ? (
-                              <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
-                                {inputPrice ? <span>In {inputPrice}</span> : null}
-                                {outputPrice ? <span>Out {outputPrice}</span> : null}
-                              </div>
+                            {model.architecture?.input_modalities?.includes('image') ? (
+                              <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+                                Vision
+                              </span>
+                            ) : null}
+                            {model.architecture?.input_modalities?.includes('file') ? (
+                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                Files
+                              </span>
                             ) : null}
                           </div>
-                          {model.context_length ? (
-                            <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                              {model.context_length.toLocaleString()} ctx
+                          {model.name && model.name !== model.id ? (
+                            <p className="truncate text-[11px] text-muted-foreground mt-0.5">
+                              {model.name}
+                            </p>
+                          ) : null}
+                          {inputPrice || outputPrice ? (
+                            <div className="mt-1 flex gap-2 text-[11px] text-muted-foreground font-mono">
+                              {inputPrice ? <span>In: {inputPrice}</span> : null}
+                              {outputPrice ? <span>Out: {outputPrice}</span> : null}
                             </div>
                           ) : null}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="px-4 py-7 text-center text-sm text-muted-foreground">
-                      {openRouterApiKey.trim()
-                        ? 'No models match your search.'
-                        : 'Add an OpenRouter API key to load models.'}
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {model.context_length ? (
+                            <span className="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
+                              {Math.round(model.context_length / 1024)}k ctx
+                            </span>
+                          ) : null}
+                          {isSelected ? (
+                            <Check className="h-4 w-4 text-primary" />
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="py-8 text-center text-xs text-muted-foreground">
+                    {openRouterApiKey.trim()
+                      ? 'No models match your search.'
+                      : 'Add an OpenRouter API key to load available models.'}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
 
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Response controls"
-                  className="liquid-icon-button h-9 w-9 rounded-full"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="glass-dialog w-[min(92vw,22rem)] border-white/50 p-4 dark:border-white/10"
+          {/* Response Controls Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Response controls"
+                className="relative h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
               >
-                <div className="mb-4">
-                  <p className="text-sm font-semibold">Response controls</p>
-                  <p className="text-xs text-muted-foreground">Applied to your next message.</p>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <Label htmlFor="navbar-web-search">Web search</Label>
-                      <p className="text-xs leading-5 text-muted-foreground">Allow current web information.</p>
-                    </div>
-                    <Switch
-                      id="navbar-web-search"
-                      checked={webSearchEnabled}
-                      onCheckedChange={setWebSearchEnabled}
-                      aria-label="Enable web search"
-                    />
+                <SlidersHorizontal className="h-4 w-4" />
+                {webSearchEnabled || reasoningEffort ? (
+                  <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
+                ) : null}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[min(92vw,22rem)] rounded-xl border border-border bg-popover p-4 shadow-lg"
+            >
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-foreground">Response Controls</p>
+                <p className="text-xs text-muted-foreground">Applied to the next response.</p>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="navbar-web-search" className="text-xs font-medium">
+                      Web search
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Enable real-time web search tool
+                    </p>
                   </div>
-                  <div className="space-y-2 border-t border-white/35 pt-4 dark:border-white/10">
-                    <div className="space-y-1">
-                      <Label htmlFor="navbar-reasoning-effort">Reasoning effort</Label>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {selectedModelSupportsReasoningEffort
-                          ? 'Higher effort can improve complex answers and increase output cost.'
-                          : 'This model does not expose configurable reasoning levels.'}
-                      </p>
-                    </div>
-                    <Select
-                      value={
-                        reasoningEffort && selectedReasoningEffortIsAvailable
-                          ? reasoningEffort
-                          : 'default'
-                      }
-                      onValueChange={(value) =>
-                        setReasoningEffort(value === 'default' ? '' : (value as ReasoningEffort))
-                      }
-                      disabled={!selectedModelSupportsReasoningEffort}
-                    >
-                      <SelectTrigger id="navbar-reasoning-effort" className="liquid-input w-full rounded-xl">
-                        <SelectValue placeholder="Model default" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="default">Model default</SelectItem>
-                        {reasoningEffortOptions.map((effort) => (
-                          <SelectItem key={effort} value={effort}>
-                            {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Switch
+                    id="navbar-web-search"
+                    checked={webSearchEnabled}
+                    onCheckedChange={setWebSearchEnabled}
+                    aria-label="Enable web search"
+                  />
                 </div>
-              </PopoverContent>
-            </Popover>
 
+                <div className="space-y-2 border-t border-border pt-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="navbar-reasoning-effort" className="text-xs font-medium">
+                      Reasoning effort
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {selectedModelSupportsReasoningEffort
+                        ? 'Controls depth of model thinking'
+                        : 'Not configurable on current model'}
+                    </p>
+                  </div>
+                  <Select
+                    value={
+                      reasoningEffort && selectedReasoningEffortIsAvailable
+                        ? reasoningEffort
+                        : 'default'
+                    }
+                    onValueChange={(value) =>
+                      setReasoningEffort(value === 'default' ? '' : (value as ReasoningEffort))
+                    }
+                    disabled={!selectedModelSupportsReasoningEffort}
+                  >
+                    <SelectTrigger id="navbar-reasoning-effort" className="h-8 rounded-lg text-xs">
+                      <SelectValue placeholder="Model default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Model default</SelectItem>
+                      {reasoningEffortOptions.map((effort) => (
+                        <SelectItem key={effort} value={effort} className="text-xs">
+                          {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* API Key Dialog Trigger */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
             onClick={() => setIsOpenRouterDialogOpen(true)}
             aria-label="OpenRouter settings"
-            className="liquid-icon-button h-9 w-9 rounded-full"
+            className="relative h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
           >
             <KeyRound className="h-4 w-4" />
+            {!openRouterApiKey.trim() ? (
+              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+            ) : null}
           </Button>
 
+          {/* New Chat Button */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
             onClick={handleNewChat}
             aria-label="New Chat"
-            className="liquid-icon-button h-9 w-9 rounded-full"
+            className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="h-4 w-4" />
           </Button>
+
+          {/* Theme Toggle */}
           <ThemeToggle />
         </div>
-        </header>
+      </header>
 
+      {/* Main Chat Scroll Area */}
       <main className="min-h-0 flex-1 overflow-hidden">
         <ScrollArea ref={scrollAreaRef} className="h-full">
-          <div className="mx-auto min-h-full w-full max-w-5xl space-y-6 px-4 py-6 md:px-8 md:py-10">
-            {messages.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <Bot className="h-8 w-8" />
+          <div className="mx-auto min-h-full w-full max-w-3xl space-y-6 px-4 py-8">
+            {messages.length === 0 ? (
+              <div className="flex min-h-[calc(100vh-230px)] flex-col items-center justify-center text-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-card text-primary shadow-xs">
+                  <Bot className="h-6 w-6" />
                 </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.2em] text-primary">OpenRouter workspace</p>
-                  <h2 className="text-3xl font-semibold tracking-[-0.045em] text-foreground sm:text-4xl">How can I help?</h2>
-                  <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">
-                    Choose a model, bring your own key, and make something remarkable.
-                  </p>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2 pt-2">
-                  <span className="feature-pill">Private key storage</span>
-                  <span className="feature-pill">Text &amp; image models</span>
-                  <span className="feature-pill">Streaming replies</span>
-                </div>
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                  How can I help you today?
+                </h2>
+                <p className="mt-1.5 max-w-md text-xs text-muted-foreground">
+                  {selectedModelMetadata?.name
+                    ? `Active model: ${selectedModelMetadata.name}`
+                    : 'Select a model and start chatting.'}
+                </p>
+
+                {!openRouterApiKey.trim() ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsOpenRouterDialogOpen(true)}
+                    className="mt-4 gap-2 rounded-lg border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    <span>Enter OpenRouter API key</span>
+                  </Button>
+                ) : (
+                  <div className="mt-6 flex flex-wrap justify-center gap-2 max-w-lg">
+                    {[
+                      'Explain how quantum computing works simply',
+                      'Write a clean React hook for debouncing',
+                      'Analyze tradeoffs between SQL and NoSQL',
+                    ].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => handleSelectSuggestedPrompt(suggestion)}
+                        className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-accent hover:text-foreground"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+            ) : null}
+
             {messages.map((message, index) => (
               <div
                 key={index}
                 className={cn(
-                  'flex items-start gap-3 animate-in fade-in duration-300',
+                  'flex items-start gap-3',
                   message.role === 'user' ? 'justify-end' : 'justify-start'
                 )}
               >
-                {message.role === 'assistant' && (
-                  <Avatar className="h-8 w-8 shrink-0 border">
-                    <AvatarFallback>
-                      <Bot className="h-4 w-4" />
+                {message.role === 'assistant' ? (
+                  <Avatar className="h-7 w-7 shrink-0 rounded-lg border border-border">
+                    <AvatarFallback className="rounded-lg bg-muted text-[11px] font-semibold text-foreground">
+                      AI
                     </AvatarFallback>
                   </Avatar>
-                )}
+                ) : null}
+
                 <div
                   className={cn(
-                    'message-bubble max-w-[85%] p-4 text-[15px] leading-6 md:max-w-3xl',
+                    'group relative max-w-[85%] text-sm leading-relaxed sm:max-w-[78%]',
                     message.role === 'user'
-                      ? 'message-user'
-                      : 'message-assistant'
+                      ? 'rounded-2xl rounded-tr-xs bg-primary text-primary-foreground px-4 py-2.5 shadow-xs'
+                      : 'rounded-2xl rounded-tl-xs border border-border/80 bg-card px-4 py-3 text-foreground shadow-xs'
                   )}
                 >
                   <div className="flex flex-col gap-2">
+                    {/* User Attachments Display */}
                     {message.attachments && message.attachments.length > 0 ? (
                       <div className="grid gap-2 sm:grid-cols-2">
                         {message.attachments.map((attachment) =>
                           attachment.kind === 'image' ? (
                             <div
                               key={attachment.id}
-                              className="overflow-hidden rounded-2xl border border-white/30 bg-background/30 shadow-sm"
+                              className="overflow-hidden rounded-xl border border-border bg-background/50"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={attachment.dataUrl}
                                 alt={attachment.name}
-                                className="max-h-72 w-full object-contain"
+                                className="max-h-64 w-full object-contain"
                               />
                             </div>
                           ) : (
                             <div
                               key={attachment.id}
-                              className="flex min-w-0 items-center gap-2 rounded-xl border border-white/30 bg-background/30 px-3 py-2 text-sm"
+                              className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-xs"
                             >
-                              <FileText className="h-4 w-4 shrink-0" />
+                              <FileText className="h-3.5 w-3.5 shrink-0" />
                               <span className="truncate">{attachment.name}</span>
                             </div>
                           )
                         )}
                       </div>
                     ) : null}
+
+                    {/* Assistant Generated Images */}
                     {message.images && message.images.length > 0 ? (
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-2 my-1">
                         {message.images.map((image, imageIndex) => (
                           <div
                             key={`${image.url.slice(0, 32)}-${imageIndex}`}
-                            className="overflow-hidden rounded-2xl border border-white/30 bg-background/30 shadow-sm"
+                            className="overflow-hidden rounded-xl border border-border bg-muted/20"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={image.url}
-                              alt={`Generated image ${imageIndex + 1}`}
+                              alt={`Generated ${imageIndex + 1}`}
                               className="h-auto w-full object-cover"
                             />
                           </div>
                         ))}
                       </div>
                     ) : null}
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      className="max-w-none"
-                      components={{
-                        p: ({ node, ...props }) => (
-                          <p className="mb-2 last:mb-0" {...props} />
-                        ),
-                        ol: ({ node, ...props }) => (
-                          <ol className="list-inside list-decimal" {...props} />
-                        ),
-                        ul: ({ node, ...props }) => (
-                          <ul className="list-inside list-disc" {...props} />
-                        ),
-                        li: ({ node, ...props }) => <li className="mb-1" {...props} />,
-                        code: ({ node, className, children, ...props }) =>
-                          className ? (
-                            <pre className="my-2 overflow-x-auto rounded-md bg-muted p-2">
-                              <code className={className} {...props}>
+
+                    {/* Markdown Content */}
+                    <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ node, ...props }) => (
+                            <p className="mb-2 last:mb-0 leading-relaxed" {...props} />
+                          ),
+                          ol: ({ node, ...props }) => (
+                            <ol className="my-2 ml-4 list-decimal space-y-1" {...props} />
+                          ),
+                          ul: ({ node, ...props }) => (
+                            <ul className="my-2 ml-4 list-disc space-y-1" {...props} />
+                          ),
+                          li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                          code: ({ node, className, children, ...props }) =>
+                            className ? (
+                              <CodeSnippet className={className}>
+                                {children}
+                              </CodeSnippet>
+                            ) : (
+                              <code
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 font-mono text-[13px]',
+                                  message.role === 'user'
+                                    ? 'bg-white/20 text-white'
+                                    : 'border border-border/60 bg-muted text-foreground'
+                                )}
+                                {...props}
+                              >
                                 {children}
                               </code>
-                            </pre>
-                          ) : (
-                            <code
-                              className="rounded-sm bg-muted px-1 py-0.5"
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          ),
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                            ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+
+                    {/* Copy Assistant Message Button */}
                     {message.role === 'assistant' &&
                       message.content &&
-                      (index < messages.length - 1 || !isLoading) && (
-                        <div className="flex justify-end">
+                      (index < messages.length - 1 || !isLoading) ? (
+                        <div className="mt-1 flex items-center justify-end">
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => handleCopy(message.content)}
-                              aria-label="Copy message"
-                            className="h-7 w-7 rounded-full text-muted-foreground hover:bg-white/30"
+                            aria-label="Copy message"
+                            className="h-6 w-6 rounded text-muted-foreground opacity-60 transition-opacity hover:opacity-100 hover:text-foreground"
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
                         </div>
-                      )}
+                      ) : null}
                   </div>
                 </div>
-                {message.role === 'user' && (
-                  <Avatar className="h-8 w-8 shrink-0 border">
-                    <AvatarFallback>
-                      <User className="h-4 w-4" />
+
+                {message.role === 'user' ? (
+                  <Avatar className="h-7 w-7 shrink-0 rounded-lg border border-border">
+                    <AvatarFallback className="rounded-lg bg-primary/10 text-[11px] font-semibold text-primary">
+                      <User className="h-3.5 w-3.5" />
                     </AvatarFallback>
                   </Avatar>
-                )}
+                ) : null}
               </div>
             ))}
           </div>
         </ScrollArea>
       </main>
 
-      <footer className="liquid-footer">
-        <div className="mx-auto w-full max-w-4xl">
-        {pendingAttachments.length > 0 ? (
-          <div className="mb-2 flex flex-wrap gap-2 px-1">
-            {pendingAttachments.map((attachment) => (
-              <div
-                key={attachment.id}
-                className="flex max-w-full items-center gap-2 rounded-xl border border-white/40 bg-white/35 px-2 py-1.5 text-xs shadow-sm backdrop-blur dark:border-white/10 dark:bg-black/20"
-              >
-                {attachment.kind === 'image' ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={attachment.dataUrl}
-                    alt=""
-                    className="h-8 w-8 rounded-md object-cover"
-                  />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0" />
-                )}
-                <span className="max-w-40 truncate">{attachment.name}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removePendingAttachment(attachment.id)}
-                  className="h-6 w-6 shrink-0 rounded-full"
-                  aria-label={`Remove ${attachment.name}`}
+      {/* Bottom Composer Area */}
+      <footer className="shrink-0 border-t border-border bg-background px-4 pb-4 pt-3 sm:px-6">
+        <div className="mx-auto w-full max-w-3xl">
+          {/* Pending Attachments Strip */}
+          {pendingAttachments.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-2 px-1">
+              {pendingAttachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 py-1 pl-2 pr-1 text-xs text-foreground"
                 >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="composer-shell">
-            <input
-              ref={attachmentInputRef}
-              type="file"
-              accept={attachmentAccept}
-              multiple
-              onChange={handleAttachmentChange}
-              className="sr-only"
-              aria-hidden="true"
-              tabIndex={-1}
-            />
-            <FormField
-              control={form.control}
-              name="message"
-              render={({ field }) => (
-                <FormItem className="flex-1">
-                  <FormControl>
-                    <div className="relative">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => attachmentInputRef.current?.click()}
-                        disabled={
-                          isLoading ||
-                          !selectedModelSupportsAttachments ||
-                          !openRouterApiKey.trim()
-                        }
-                        className="absolute left-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full text-muted-foreground hover:bg-white/30"
-                        aria-label="Add images or PDF documents"
-                        title={
-                          selectedModelSupportsAttachments
-                            ? 'Add images or PDF documents'
-                            : 'Choose a chat model that supports image or file input to add attachments'
-                        }
-                      >
-                        {selectedModelSupportsImageInput && selectedModelSupportsFileInput ? (
-                          <Paperclip className="h-4 w-4" />
-                        ) : selectedModelSupportsImageInput ? (
-                          <ImageIcon className="h-4 w-4" />
-                        ) : (
-                          <FileText className="h-4 w-4" />
-                        )}
-                        <span className="sr-only">Add attachment</span>
-                      </Button>
-                      <Input
-                        placeholder={
-                          selectedModelSupportsAttachments
-                            ? 'Ask about an image or PDF'
-                            : 'Ask me anything'
-                        }
-                        autoComplete="off"
-                        {...field}
-                        disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
-                        className="liquid-input h-14 rounded-[1.15rem] border-0 bg-transparent pl-14 pr-14 text-[15px] shadow-none focus-visible:ring-0"
-                      />
-                      {isLoading ? (
+                  {attachment.kind === 'image' ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachment.dataUrl}
+                      alt=""
+                      className="h-6 w-6 rounded object-cover"
+                    />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="max-w-[140px] truncate text-[11px] font-medium">
+                    {attachment.name}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removePendingAttachment(attachment.id)}
+                    className="h-5 w-5 rounded-md text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${attachment.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              <input
+                ref={attachmentInputRef}
+                type="file"
+                accept={attachmentAccept}
+                multiple
+                onChange={handleAttachmentChange}
+                className="sr-only"
+                aria-hidden="true"
+                tabIndex={-1}
+              />
+              <FormField
+                control={form.control}
+                name="message"
+                render={({ field }) => (
+                  <FormItem className="flex-1">
+                    <FormControl>
+                      <div className="relative flex items-center rounded-xl border border-border bg-card shadow-xs transition-all focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
+                        {/* Attachments Button */}
                         <Button
                           type="button"
+                          variant="ghost"
                           size="icon"
-                          onClick={handleStopGenerating}
-                          className="absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-destructive shadow-lg shadow-red-500/25 hover:bg-destructive/90"
-                          aria-label="Stop generating"
-                        >
-                          <Square className="h-4 w-4" />
-                          <span className="sr-only">Stop</span>
-                        </Button>
-                      ) : (
-                        <Button
-                          type="submit"
-                          size="icon"
+                          onClick={() => attachmentInputRef.current?.click()}
                           disabled={
-                            (!field.value.trim() && pendingAttachments.length === 0) ||
-                            !selectedModel ||
+                            isLoading ||
+                            !selectedModelSupportsAttachments ||
                             !openRouterApiKey.trim()
                           }
-                          className="absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-primary shadow-lg shadow-sky-500/30 hover:bg-primary/90"
-                          aria-label="Send message"
+                          className="h-9 w-9 shrink-0 ml-1 rounded-lg text-muted-foreground hover:text-foreground"
+                          aria-label="Add images or documents"
+                          title={
+                            selectedModelSupportsAttachments
+                              ? 'Add images or PDF documents'
+                              : 'Choose a chat model that supports image or file input to add attachments'
+                          }
                         >
-                          <ArrowUp className="h-4 w-4" />
-                          <span className="sr-only">Send</span>
+                          {selectedModelSupportsImageInput && selectedModelSupportsFileInput ? (
+                            <Paperclip className="h-4 w-4" />
+                          ) : selectedModelSupportsImageInput ? (
+                            <ImageIcon className="h-4 w-4" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
                         </Button>
-                      )}
-                    </div>
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </form>
-        </Form>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground/80">
-          Responses can make mistakes. Check important information.
-        </p>
+
+                        {/* Text Input */}
+                        <Input
+                          placeholder={
+                            selectedModelSupportsAttachments
+                              ? 'Ask about an image, document, or topic...'
+                              : 'Send a message...'
+                          }
+                          autoComplete="off"
+                          {...field}
+                          disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
+                          className="h-11 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                        />
+
+                        {/* Send / Stop Button */}
+                        <div className="mr-1.5 shrink-0">
+                          {isLoading ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              onClick={handleStopGenerating}
+                              className="h-8 w-8 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              aria-label="Stop generating"
+                            >
+                              <Square className="h-3.5 w-3.5 fill-current" />
+                              <span className="sr-only">Stop</span>
+                            </Button>
+                          ) : (
+                            <Button
+                              type="submit"
+                              size="icon"
+                              disabled={
+                                (!field.value.trim() && pendingAttachments.length === 0) ||
+                                !selectedModel ||
+                                !openRouterApiKey.trim()
+                              }
+                              className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                              aria-label="Send message"
+                            >
+                              <ArrowUp className="h-4 w-4" />
+                              <span className="sr-only">Send</span>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </form>
+          </Form>
+
+          <p className="mt-2 text-center text-[11px] text-muted-foreground/80">
+            OpenRouter models can make mistakes. Always verify critical details.
+          </p>
         </div>
       </footer>
 
+      {/* OpenRouter API Key Dialog */}
       <Dialog
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent className="glass-dialog border-white/50 sm:max-w-md dark:border-white/10">
+        <DialogContent className="rounded-xl border border-border bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-xl tracking-[-0.03em]">OpenRouter API key</DialogTitle>
-            <DialogDescription>
-              Your key is stored locally in this browser. Choose a model and response controls from the navbar.
+            <DialogTitle className="text-lg font-semibold tracking-tight">
+              OpenRouter API Key
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Your API key is stored locally in your browser and used to authenticate with OpenRouter.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-w-0">
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="openrouter-api-key">API key</Label>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="openrouter-api-key" className="text-xs font-medium">
+                  API Key
+                </Label>
+                <a
+                  href="https://openrouter.ai/keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                >
+                  <span>Get OpenRouter key</span>
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
               <Input
                 id="openrouter-api-key"
                 type="password"
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
                 placeholder="sk-or-v1-..."
-                className="liquid-input min-w-0 rounded-xl"
+                className="h-9 rounded-lg font-mono text-xs"
               />
             </div>
           </div>
 
-          <DialogFooter className="min-w-0">
-            <Button type="button" onClick={handleSaveOpenRouterSettings} className="rounded-full px-5 shadow-lg shadow-sky-500/20">
-              Save
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              onClick={handleSaveOpenRouterSettings}
+              className="h-8 rounded-lg px-4 text-xs font-medium"
+            >
+              Save Key
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      </div>
     </div>
   );
 }
