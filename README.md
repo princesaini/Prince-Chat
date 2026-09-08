@@ -52,6 +52,8 @@ Select the model button in the navbar. The list is searchable and starts with po
 - Context-window size
 - An `Image` label when the model can generate images
 
+Search also matches capability labels such as `Vision`, `Image`, and `File`, so entering `vision` shows every model that accepts image input.
+
 Use the refresh button in the picker after changing your API key or when you want the latest model list.
 
 ### Adjust response controls

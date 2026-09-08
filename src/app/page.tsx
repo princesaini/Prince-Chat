@@ -340,10 +340,20 @@ export default function Home() {
       return true;
     }
 
-    return (
-      model.id.toLowerCase().includes(query) ||
-      model.name.toLowerCase().includes(query)
-    );
+    const inputModalities = model.architecture?.input_modalities ?? [];
+    const outputModalities = model.architecture?.output_modalities ?? [];
+    const searchableModelDetails = [
+      model.id,
+      model.name,
+      ...inputModalities,
+      ...outputModalities,
+      ...(inputModalities.includes('image') ? ['vision'] : []),
+      ...(outputModalities.includes('image') ? ['image generation'] : []),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return searchableModelDetails.includes(query);
   });
 
   const appendAssistantText = (text: string) => {
@@ -843,7 +853,7 @@ export default function Home() {
                 <Input
                   value={openRouterModelSearch}
                   onChange={(event) => setOpenRouterModelSearch(event.target.value)}
-                  placeholder="Search available models..."
+                  placeholder="Search models or capabilities..."
                   className="h-9 rounded-lg pl-8 text-xs"
                 />
               </div>
