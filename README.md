@@ -9,6 +9,7 @@ It is designed for people who want a simple way to try different OpenRouter mode
 - Chat with OpenRouter text models and see responses stream in as they are generated.
 - Pick a model from a searchable list in the top navbar.
 - See each model's input and output price per one million tokens, plus its context-window size.
+- See the input and output tokens plus estimated cost beneath each text response.
 - Generate images when you choose a model that supports image output.
 - Turn OpenRouter web search on or off from the response-controls menu.
 - Set a reasoning effort level when the selected model supports it.

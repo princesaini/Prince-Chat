@@ -62,10 +62,17 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   attachments?: Attachment[];
+  usage?: MessageUsage;
   images?: {
     url: string;
     mediaType: string;
   }[];
+};
+
+type MessageUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number | null;
 };
 
 type Attachment = {
@@ -182,11 +189,64 @@ function formatPricePerMillion(price?: string) {
   return `$${formattedPrice}/M`;
 }
 
+function toFiniteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function getMessageUsage(
+  usage: unknown,
+  pricing?: OpenRouterModel['pricing']
+): MessageUsage | null {
+  const rawUsage = usage as {
+    prompt_tokens?: unknown;
+    input_tokens?: unknown;
+    completion_tokens?: unknown;
+    output_tokens?: unknown;
+    cost?: unknown;
+  };
+  const inputTokens = toFiniteNumber(rawUsage?.prompt_tokens ?? rawUsage?.input_tokens);
+  const outputTokens = toFiniteNumber(
+    rawUsage?.completion_tokens ?? rawUsage?.output_tokens
+  );
+
+  if (inputTokens === null || outputTokens === null) {
+    return null;
+  }
+
+  const reportedCost = toFiniteNumber(rawUsage?.cost);
+  const inputPrice = toFiniteNumber(pricing?.prompt);
+  const outputPrice = toFiniteNumber(pricing?.completion);
+  const estimatedCost =
+    reportedCost ??
+    (inputPrice !== null && outputPrice !== null
+      ? inputTokens * inputPrice + outputTokens * outputPrice
+      : null);
+
+  return { inputTokens, outputTokens, estimatedCost };
+}
+
+function formatTokenCount(tokens: number) {
+  return new Intl.NumberFormat(undefined, {
+    notation: 'compact',
+    maximumFractionDigits: tokens >= 1_000 ? 1 : 0,
+  }).format(tokens);
+}
+
+function formatEstimatedCost(cost: number) {
+  const maximumFractionDigits =
+    cost >= 1 ? 2 : cost >= 0.01 ? 3 : cost >= 0.0001 ? 4 : 6;
+
+  return `$${cost.toLocaleString(undefined, { maximumFractionDigits })}`;
+}
+
 function parseOpenRouterChunk(
   chunk: string,
-  appendAssistantText: (text: string) => void
+  appendAssistantText: (text: string) => void,
+  updateAssistantUsage: (usage: unknown) => void
 ) {
-  const events = chunk.split('\n\n');
+  const events = chunk.split(/\r?\n\r?\n/);
+  const remainingChunk = events.pop() ?? '';
 
   for (const event of events) {
     const trimmedEvent = event.trim();
@@ -211,6 +271,10 @@ function parseOpenRouterChunk(
           appendAssistantText(content);
         }
 
+        if (parsed.usage) {
+          updateAssistantUsage(parsed.usage);
+        }
+
         if (parsed.error?.message) {
           throw new Error(parsed.error.message);
         }
@@ -219,6 +283,8 @@ function parseOpenRouterChunk(
       }
     }
   }
+
+  return remainingChunk;
 }
 
 function CodeSnippet({
@@ -365,6 +431,30 @@ export default function Home() {
         updatedMessages[updatedMessages.length - 1] = {
           ...lastMessage,
           content: lastMessage.content + text,
+        };
+      }
+
+      return updatedMessages;
+    });
+  };
+
+  const updateAssistantUsage = (
+    usage: unknown,
+    pricing?: OpenRouterModel['pricing']
+  ) => {
+    const messageUsage = getMessageUsage(usage, pricing);
+    if (!messageUsage) {
+      return;
+    }
+
+    setMessages((prev) => {
+      const updatedMessages = [...prev];
+      const lastMessage = updatedMessages[updatedMessages.length - 1];
+
+      if (lastMessage?.role === 'assistant') {
+        updatedMessages[updatedMessages.length - 1] = {
+          ...lastMessage,
+          usage: messageUsage,
         };
       }
 
@@ -714,6 +804,7 @@ export default function Home() {
           },
         ]);
       } else {
+        const requestPricing = selectedModelMetadata?.pricing;
         const response = await fetch('/api/openrouter/api/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -748,6 +839,7 @@ export default function Home() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let bufferedChunk = '';
 
         while (true) {
           const { value, done } = await reader.read();
@@ -755,8 +847,20 @@ export default function Home() {
             break;
           }
 
-          const chunk = decoder.decode(value, { stream: true });
-          parseOpenRouterChunk(chunk, appendAssistantText);
+          bufferedChunk = parseOpenRouterChunk(
+            bufferedChunk + decoder.decode(value, { stream: true }),
+            appendAssistantText,
+            (usage) => updateAssistantUsage(usage, requestPricing)
+          );
+        }
+
+        const finalChunk = bufferedChunk + decoder.decode();
+        if (finalChunk.trim()) {
+          parseOpenRouterChunk(
+            `${finalChunk}\n\n`,
+            appendAssistantText,
+            (usage) => updateAssistantUsage(usage, requestPricing)
+          );
         }
       }
     } catch (error: unknown) {
@@ -1206,11 +1310,26 @@ export default function Home() {
                       </ReactMarkdown>
                     </div>
 
-                    {/* Copy Assistant Message Button */}
                     {message.role === 'assistant' &&
-                      message.content &&
-                      (index < messages.length - 1 || !isLoading) ? (
-                        <div className="mt-1 flex items-center justify-end">
+                    (message.usage ||
+                      (message.content && (index < messages.length - 1 || !isLoading))) ? (
+                      <div className="mt-1 flex items-center justify-between gap-3 border-t border-border/60 pt-2">
+                        {message.usage ? (
+                          <span
+                            className="truncate text-[10px] text-muted-foreground"
+                            title={`Input: ${message.usage.inputTokens.toLocaleString()} tokens · Output: ${message.usage.outputTokens.toLocaleString()} tokens${message.usage.estimatedCost !== null ? ` · Estimated cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
+                          >
+                            {formatTokenCount(message.usage.inputTokens)} in ·{' '}
+                            {formatTokenCount(message.usage.outputTokens)} out
+                            {message.usage.estimatedCost !== null
+                              ? ` · ≈ ${formatEstimatedCost(message.usage.estimatedCost)}`
+                              : ''}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+
+                        {message.content && (index < messages.length - 1 || !isLoading) ? (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1220,8 +1339,9 @@ export default function Home() {
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                        </div>
-                      ) : null}
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
