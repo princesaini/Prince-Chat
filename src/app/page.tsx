@@ -721,22 +721,24 @@ export default function Home() {
       return;
     }
 
-    if (!selectedModel) {
+    const hasApiKey = Boolean(openRouterApiKey.trim());
+    if (!hasApiKey || !selectedModel) {
       toast({
-        variant: 'destructive',
-        title: 'No model selected.',
-        description: 'Please select an OpenRouter model first.',
+        title: 'Finish setup first',
+        description:
+          !hasApiKey && !selectedModel
+            ? 'Add your OpenRouter API key and select a model before sending a message.'
+            : !hasApiKey
+              ? 'Add your OpenRouter API key before sending a message.'
+              : 'Select an OpenRouter model before sending a message.',
       });
-      return;
-    }
 
-    if (!openRouterApiKey.trim()) {
-      toast({
-        variant: 'destructive',
-        title: 'OpenRouter API key required.',
-        description: 'Add your OpenRouter API key before sending a message.',
-      });
-      setIsOpenRouterDialogOpen(true);
+      if (!hasApiKey) {
+        setIsOpenRouterDialogOpen(true);
+      } else {
+        setIsModelPickerOpen(true);
+      }
+
       return;
     }
 
@@ -1453,7 +1455,7 @@ export default function Home() {
                           }
                           autoComplete="off"
                           {...field}
-                          disabled={isLoading || !selectedModel || !openRouterApiKey.trim()}
+                          disabled={isLoading}
                           className="h-11 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                         />
 
@@ -1475,9 +1477,7 @@ export default function Home() {
                               type="submit"
                               size="icon"
                               disabled={
-                                (!field.value.trim() && pendingAttachments.length === 0) ||
-                                !selectedModel ||
-                                !openRouterApiKey.trim()
+                                (!field.value.trim() && pendingAttachments.length === 0) || isLoading
                               }
                               className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                               aria-label="Send message"
