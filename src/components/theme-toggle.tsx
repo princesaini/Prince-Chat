@@ -23,7 +23,7 @@ export function ThemeToggle() {
         size="icon"
         disabled={true}
         aria-label="Toggle theme"
-        className="h-9 w-9 text-muted-foreground hover:text-foreground rounded-lg"
+        className="h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <Sun className="h-4 w-4" />
       </Button>
@@ -36,7 +36,7 @@ export function ThemeToggle() {
       size="icon"
       onClick={toggleTheme}
       aria-label="Toggle theme"
-      className="h-9 w-9 text-muted-foreground hover:text-foreground rounded-lg"
+      className="h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
       <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />

@@ -899,18 +899,19 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
       {/* Top Navigation Bar */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
+      <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl sm:px-7">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-violet-400 text-primary-foreground shadow-lg shadow-primary/20">
             <Sparkles className="h-4 w-4" />
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold tracking-tight">Prince Chat</h1>
-            <span className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase sm:inline-block">
-              OpenRouter
-            </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold tracking-[-0.02em]">Prince Chat</h1>
+              <span className="hidden rounded-md border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground sm:inline-block">OpenRouter</span>
+            </div>
+            <p className="hidden text-[10px] text-muted-foreground md:block">Your private AI workspace</p>
           </div>
         </div>
 
@@ -920,7 +921,7 @@ export default function Home() {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className="h-9 max-w-[180px] justify-between gap-1.5 rounded-lg border-border px-2.5 text-xs font-medium hover:bg-accent sm:max-w-[280px] sm:px-3"
+                className="h-10 max-w-[175px] justify-between gap-2 rounded-xl border-border/80 bg-card/80 px-2.5 text-xs font-semibold shadow-sm transition-all hover:border-primary/30 hover:bg-accent/70 sm:max-w-[300px] sm:px-3"
                 aria-label="Choose model"
               >
                 <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -932,12 +933,12 @@ export default function Home() {
             </PopoverTrigger>
             <PopoverContent
               align="end"
-              className="w-[min(94vw,34rem)] rounded-xl border border-border bg-popover p-3 shadow-lg"
+              className="w-[min(94vw,36rem)] rounded-2xl border border-border/80 bg-popover/95 p-3 shadow-2xl shadow-black/15 backdrop-blur-xl"
             >
               <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Select Model</p>
-                  <p className="text-xs text-muted-foreground">Prices are per 1M tokens.</p>
+                  <p className="text-sm font-bold tracking-tight text-foreground">Choose your model</p>
+                  <p className="text-xs text-muted-foreground">Compare capabilities and pricing per 1M tokens.</p>
                 </div>
                 <Button
                   type="button"
@@ -945,7 +946,7 @@ export default function Home() {
                   size="sm"
                   onClick={() => fetchOpenRouterModels(openRouterApiKey)}
                   disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
-                  className="h-8 gap-1.5 rounded-lg px-2.5 text-xs"
+                  className="h-8 gap-1.5 rounded-lg border-border/80 px-2.5 text-xs"
                 >
                   {isFetchingOpenRouterModels ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -960,11 +961,11 @@ export default function Home() {
                   value={openRouterModelSearch}
                   onChange={(event) => setOpenRouterModelSearch(event.target.value)}
                   placeholder="Search models or capabilities..."
-                  className="h-9 rounded-lg pl-8 text-xs"
+                  className="h-10 rounded-xl border-border/80 bg-background/60 pl-8 text-xs"
                 />
               </div>
 
-              <div className="max-h-[min(55vh,26rem)] overflow-y-auto rounded-lg border border-border/70 bg-card divide-y divide-border/60">
+              <div className="max-h-[min(55vh,27rem)] overflow-y-auto rounded-xl border border-border/70 bg-card/70 divide-y divide-border/60">
                 {filteredOpenRouterModels.length > 0 ? (
                   filteredOpenRouterModels.map((model) => {
                     const isSelected = model.id === selectedOpenRouterModel;
@@ -980,13 +981,13 @@ export default function Home() {
                           setIsModelPickerOpen(false);
                         }}
                         className={cn(
-                          'flex w-full items-start justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/70',
-                          isSelected && 'bg-accent/90'
+                          'flex w-full items-start justify-between gap-3 px-3.5 py-3 text-left transition-colors hover:bg-accent/70',
+                          isSelected && 'bg-primary/10'
                         )}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-xs font-semibold text-foreground">
+                            <span className="truncate text-xs font-bold text-foreground">
                               {model.id}
                             </span>
                             {model.architecture?.output_modalities?.includes('image') ? (
@@ -1048,7 +1049,7 @@ export default function Home() {
                 variant="ghost"
                 size="icon"
                 aria-label="Response controls"
-                className="relative h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
+                className="relative h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <SlidersHorizontal className="h-4 w-4" />
                 {webSearchEnabled || reasoningEffort ? (
@@ -1058,10 +1059,10 @@ export default function Home() {
             </PopoverTrigger>
             <PopoverContent
               align="end"
-              className="w-[min(92vw,22rem)] rounded-xl border border-border bg-popover p-4 shadow-lg"
+              className="w-[min(92vw,22rem)] rounded-2xl border border-border/80 bg-popover/95 p-4 shadow-2xl shadow-black/15 backdrop-blur-xl"
             >
               <div className="mb-3">
-                <p className="text-sm font-semibold text-foreground">Response Controls</p>
+                <p className="text-sm font-bold tracking-tight text-foreground">Response controls</p>
                 <p className="text-xs text-muted-foreground">Applied to the next response.</p>
               </div>
               <div className="space-y-4">
@@ -1127,7 +1128,7 @@ export default function Home() {
             size="icon"
             onClick={() => setIsOpenRouterDialogOpen(true)}
             aria-label="OpenRouter settings"
-            className="relative h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
+            className="relative h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <KeyRound className="h-4 w-4" />
             {!openRouterApiKey.trim() ? (
@@ -1141,7 +1142,7 @@ export default function Home() {
             size="icon"
             onClick={handleNewChat}
             aria-label="New Chat"
-            className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground"
+            className="h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
           </Button>
@@ -1152,21 +1153,22 @@ export default function Home() {
       </header>
 
       {/* Main Chat Scroll Area */}
-      <main className="min-h-0 flex-1 overflow-hidden">
+      <main className="relative min-h-0 flex-1 overflow-hidden">
         <ScrollArea ref={scrollAreaRef} className="h-full">
-          <div className="mx-auto min-h-full w-full max-w-3xl space-y-6 px-4 py-8">
+          <div className="mx-auto min-h-full w-full max-w-4xl space-y-7 px-4 py-7 sm:px-6 sm:py-10">
             {messages.length === 0 ? (
-              <div className="flex min-h-[calc(100vh-230px)] flex-col items-center justify-center text-center">
-                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-card text-primary shadow-xs">
-                  <Bot className="h-6 w-6" />
+              <div className="flex min-h-[calc(100vh-250px)] flex-col items-center justify-center text-center">
+                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-primary/20 bg-gradient-to-br from-primary/15 to-violet-500/10 text-primary shadow-xl shadow-primary/10">
+                  <Bot className="h-7 w-7" />
                 </div>
-                <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-                  How can I help you today?
+                <span className="mb-2 rounded-full border border-border/80 bg-card/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Prince Chat</span>
+                <h2 className="text-3xl font-bold tracking-[-0.04em] text-foreground sm:text-4xl">
+                  Think clearly. Create freely.
                 </h2>
-                <p className="mt-1.5 max-w-md text-xs text-muted-foreground">
+                <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
                   {selectedModelMetadata?.name
-                    ? `Active model: ${selectedModelMetadata.name}`
-                    : 'Select a model and start chatting.'}
+                    ? `${selectedModelMetadata.name} is ready to help.`
+                    : 'Choose a model, then start a conversation.'}
                 </p>
 
                 {!openRouterApiKey.trim() ? (
@@ -1174,13 +1176,13 @@ export default function Home() {
                     variant="outline"
                     size="sm"
                     onClick={() => setIsOpenRouterDialogOpen(true)}
-                    className="mt-4 gap-2 rounded-lg border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                    className="mt-6 h-10 gap-2 rounded-xl border-amber-500/30 bg-amber-500/10 px-4 text-xs font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
                   >
                     <KeyRound className="h-3.5 w-3.5" />
                     <span>Enter OpenRouter API key</span>
                   </Button>
                 ) : (
-                  <div className="mt-6 flex flex-wrap justify-center gap-2 max-w-lg">
+                  <div className="mt-7 flex max-w-2xl flex-wrap justify-center gap-2">
                     {[
                       'Explain how quantum computing works simply',
                       'Write a clean React hook for debouncing',
@@ -1190,7 +1192,7 @@ export default function Home() {
                         key={suggestion}
                         type="button"
                         onClick={() => handleSelectSuggestedPrompt(suggestion)}
-                        className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-accent hover:text-foreground"
+                        className="rounded-xl border border-border/80 bg-card/70 px-3.5 py-2 text-xs font-medium text-muted-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-accent hover:text-foreground hover:shadow-md"
                       >
                         {suggestion}
                       </button>
@@ -1204,13 +1206,13 @@ export default function Home() {
               <div
                 key={index}
                 className={cn(
-                  'flex items-start gap-3',
+                  'flex items-start gap-3.5',
                   message.role === 'user' ? 'justify-end' : 'justify-start'
                 )}
               >
                 {message.role === 'assistant' ? (
-                  <Avatar className="h-7 w-7 shrink-0 rounded-lg border border-border">
-                    <AvatarFallback className="rounded-lg bg-muted text-[11px] font-semibold text-foreground">
+                  <Avatar className="h-8 w-8 shrink-0 rounded-xl border border-primary/15 shadow-sm">
+                    <AvatarFallback className="rounded-xl bg-primary/10 text-[10px] font-bold text-primary">
                       AI
                     </AvatarFallback>
                   </Avatar>
@@ -1218,10 +1220,10 @@ export default function Home() {
 
                 <div
                   className={cn(
-                    'group relative max-w-[85%] text-sm leading-relaxed sm:max-w-[78%]',
+                    'group relative max-w-[88%] text-sm leading-relaxed sm:max-w-[80%]',
                     message.role === 'user'
-                      ? 'rounded-2xl rounded-tr-xs bg-primary text-primary-foreground px-4 py-2.5 shadow-xs'
-                      : 'rounded-2xl rounded-tl-xs border border-border/80 bg-card px-4 py-3 text-foreground shadow-xs'
+                      ? 'rounded-2xl rounded-tr-md bg-gradient-to-br from-primary to-violet-500 px-4 py-3 text-primary-foreground shadow-lg shadow-primary/15'
+                      : 'rounded-2xl rounded-tl-md border border-border/70 bg-card/80 px-4 py-3.5 text-foreground shadow-sm backdrop-blur-sm'
                   )}
                 >
                   <div className="flex flex-col gap-2">
@@ -1315,7 +1317,7 @@ export default function Home() {
                     {message.role === 'assistant' &&
                     (message.usage ||
                       (message.content && (index < messages.length - 1 || !isLoading))) ? (
-                      <div className="mt-1 flex items-center justify-between gap-3 border-t border-border/60 pt-2">
+                      <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-border/60 pt-2.5">
                         {message.usage ? (
                           <span
                             className="truncate text-[10px] text-muted-foreground"
@@ -1337,7 +1339,7 @@ export default function Home() {
                             size="icon"
                             onClick={() => handleCopy(message.content)}
                             aria-label="Copy message"
-                            className="h-6 w-6 rounded text-muted-foreground opacity-60 transition-opacity hover:opacity-100 hover:text-foreground"
+                            className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
@@ -1348,8 +1350,8 @@ export default function Home() {
                 </div>
 
                 {message.role === 'user' ? (
-                  <Avatar className="h-7 w-7 shrink-0 rounded-lg border border-border">
-                    <AvatarFallback className="rounded-lg bg-primary/10 text-[11px] font-semibold text-primary">
+                  <Avatar className="h-8 w-8 shrink-0 rounded-xl border border-primary/15 shadow-sm">
+                    <AvatarFallback className="rounded-xl bg-primary/10 text-[11px] font-semibold text-primary">
                       <User className="h-3.5 w-3.5" />
                     </AvatarFallback>
                   </Avatar>
@@ -1361,15 +1363,15 @@ export default function Home() {
       </main>
 
       {/* Bottom Composer Area */}
-      <footer className="shrink-0 border-t border-border bg-background px-4 pb-4 pt-3 sm:px-6">
-        <div className="mx-auto w-full max-w-3xl">
+      <footer className="z-10 shrink-0 border-t border-border/70 bg-background/80 px-4 pb-4 pt-3 backdrop-blur-xl sm:px-6 sm:pb-5">
+        <div className="mx-auto w-full max-w-4xl">
           {/* Pending Attachments Strip */}
           {pendingAttachments.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-2 px-1">
               {pendingAttachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 py-1 pl-2 pr-1 text-xs text-foreground"
+                  className="flex items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 py-1.5 pl-2 pr-1 text-xs text-foreground shadow-sm"
                 >
                   {attachment.kind === 'image' ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1417,7 +1419,7 @@ export default function Home() {
                 render={({ field }) => (
                   <FormItem className="flex-1">
                     <FormControl>
-                      <div className="relative flex items-center rounded-xl border border-border bg-card shadow-xs transition-all focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
+                      <div className="relative flex items-center rounded-2xl border border-border/80 bg-card/95 p-1 shadow-lg shadow-black/[0.03] transition-all focus-within:border-primary/60 focus-within:ring-4 focus-within:ring-primary/10 dark:shadow-black/20">
                         {/* Attachments Button */}
                         <Button
                           type="button"
@@ -1429,7 +1431,7 @@ export default function Home() {
                             !selectedModelSupportsAttachments ||
                             !openRouterApiKey.trim()
                           }
-                          className="h-9 w-9 shrink-0 ml-1 rounded-lg text-muted-foreground hover:text-foreground"
+                          className="ml-0.5 h-10 w-10 shrink-0 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           aria-label="Add images or documents"
                           title={
                             selectedModelSupportsAttachments
@@ -1456,7 +1458,7 @@ export default function Home() {
                           autoComplete="off"
                           {...field}
                           disabled={isLoading}
-                          className="h-11 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                          className="h-11 flex-1 border-0 bg-transparent px-2 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
                         />
 
                         {/* Send / Stop Button */}
@@ -1466,7 +1468,7 @@ export default function Home() {
                               type="button"
                               size="icon"
                               onClick={handleStopGenerating}
-                              className="h-8 w-8 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            className="h-9 w-9 rounded-xl bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
                               aria-label="Stop generating"
                             >
                               <Square className="h-3.5 w-3.5 fill-current" />
@@ -1479,7 +1481,7 @@ export default function Home() {
                               disabled={
                                 (!field.value.trim() && pendingAttachments.length === 0) || isLoading
                               }
-                              className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                              className="h-9 w-9 rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20 transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:translate-y-0 disabled:opacity-40"
                               aria-label="Send message"
                             >
                               <ArrowUp className="h-4 w-4" />
@@ -1495,7 +1497,7 @@ export default function Home() {
             </form>
           </Form>
 
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/80">
+          <p className="mt-2.5 text-center text-[10px] text-muted-foreground/75">
             OpenRouter models can make mistakes. Always verify critical details.
           </p>
         </div>
@@ -1506,9 +1508,9 @@ export default function Home() {
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent className="rounded-xl border border-border bg-card sm:max-w-md">
+        <DialogContent className="rounded-2xl border border-border/80 bg-card p-6 shadow-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-lg font-semibold tracking-tight">
+            <DialogTitle className="text-lg font-bold tracking-tight">
               OpenRouter API Key
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
@@ -1538,7 +1540,7 @@ export default function Home() {
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
                 placeholder="sk-or-v1-..."
-                className="h-9 rounded-lg font-mono text-xs"
+                className="h-10 rounded-xl border-border/80 bg-background/60 font-mono text-xs"
               />
             </div>
           </div>
@@ -1547,7 +1549,7 @@ export default function Home() {
             <Button
               type="button"
               onClick={handleSaveOpenRouterSettings}
-              className="h-8 rounded-lg px-4 text-xs font-medium"
+              className="h-9 rounded-xl px-4 text-xs font-semibold shadow-md shadow-primary/20"
             >
               Save Key
             </Button>
