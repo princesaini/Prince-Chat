@@ -49,6 +49,7 @@ import {
   Loader2,
   Paperclip,
   Plus,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -67,6 +68,7 @@ type Message = {
     url: string;
     mediaType: string;
   }[];
+  modelId?: string;
 };
 
 type MessageUsage = {
@@ -344,6 +346,9 @@ export default function Home() {
   const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+  const [isRetryModelPickerOpen, setIsRetryModelPickerOpen] = useState(false);
+  const [retryTargetIndex, setRetryTargetIndex] = useState<number | null>(null);
+  const [retryModelSearch, setRetryModelSearch] = useState('');
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
@@ -420,6 +425,38 @@ export default function Home() {
       .toLowerCase();
 
     return searchableModelDetails.includes(query);
+  });
+
+  const retryTargetMessage =
+    retryTargetIndex === null ? undefined : messages[retryTargetIndex];
+  const retryPromptMessage =
+    retryTargetIndex === null
+      ? undefined
+      : [...messages.slice(0, retryTargetIndex)]
+          .reverse()
+          .find((message) => message.role === 'user');
+  const retryModels = openRouterModels.filter((model) => {
+    const query = retryModelSearch.trim().toLowerCase();
+    const inputModalities = model.architecture?.input_modalities ?? [];
+    const outputModalities = model.architecture?.output_modalities ?? [];
+    const supportsPromptAttachments =
+      !retryPromptMessage?.attachments?.some(
+        (attachment) =>
+          (attachment.kind === 'image' && !inputModalities.includes('image')) ||
+          (attachment.kind === 'file' && !inputModalities.includes('file'))
+      );
+    const supportsTextOutput =
+      outputModalities.length === 0 || outputModalities.includes('text');
+    const searchableModelDetails = [model.id, model.name, ...inputModalities, ...outputModalities]
+      .join(' ')
+      .toLowerCase();
+
+    return (
+      model.id !== retryTargetMessage?.modelId &&
+      supportsPromptAttachments &&
+      supportsTextOutput &&
+      (!query || searchableModelDetails.includes(query))
+    );
   });
 
   const appendAssistantText = (text: string) => {
@@ -803,6 +840,7 @@ export default function Home() {
             role: 'assistant',
             content: `Generated ${images.length} image${images.length > 1 ? 's' : ''}.`,
             images,
+            modelId: selectedModel,
           },
         ]);
       } else {
@@ -837,7 +875,10 @@ export default function Home() {
           throw new Error('The response body is empty.');
         }
 
-        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: '', modelId: selectedModel },
+        ]);
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -876,6 +917,128 @@ export default function Home() {
           variant: 'destructive',
           title: 'An error occurred.',
           description: 'Failed to get a response from OpenRouter. Check your API key and model.',
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleOpenRetryPicker = (messageIndex: number) => {
+    if (isLoading) {
+      return;
+    }
+
+    const promptMessage = [...messages.slice(0, messageIndex)]
+      .reverse()
+      .find((message) => message.role === 'user');
+
+    if (!promptMessage) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to retry this response.',
+        description: 'The original prompt is no longer available.',
+      });
+      return;
+    }
+
+    setRetryTargetIndex(messageIndex);
+    setRetryModelSearch('');
+    setIsRetryModelPickerOpen(true);
+  };
+
+  const handleRetryWithModel = async (modelId: string) => {
+    if (isLoading || retryTargetIndex === null || !openRouterApiKey.trim()) {
+      return;
+    }
+
+    const retryMessages = messages.slice(0, retryTargetIndex);
+    const retryModelMetadata = openRouterModels.find((model) => model.id === modelId);
+    const retryModelReasoning = retryModelMetadata?.reasoning;
+    const retryModelSupportsReasoningEffort =
+      Boolean(retryModelReasoning) &&
+      (retryModelReasoning?.supported_efforts === null ||
+        Boolean(retryModelReasoning?.supported_efforts?.length));
+    const retryReasoningEffortIsAvailable =
+      !reasoningEffort ||
+      retryModelReasoning?.supported_efforts === null ||
+      !retryModelReasoning?.supported_efforts?.length ||
+      retryModelReasoning.supported_efforts.includes(reasoningEffort);
+
+    setIsRetryModelPickerOpen(false);
+    setRetryTargetIndex(null);
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openrouter-api-key': openRouterApiKey.trim(),
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: retryMessages.map(toOpenRouterMessage),
+          stream: true,
+          ...(webSearchEnabled
+            ? { tools: [{ type: 'openrouter:web_search' }] }
+            : {}),
+          ...(reasoningEffort &&
+          retryModelSupportsReasoningEffort &&
+          retryReasoningEffortIsAvailable
+            ? { reasoning: { effort: reasoningEffort } }
+            : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('The retry request failed.');
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '', modelId },
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bufferedChunk = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        bufferedChunk = parseOpenRouterChunk(
+          bufferedChunk + decoder.decode(value, { stream: true }),
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing)
+        );
+      }
+
+      const finalChunk = bufferedChunk + decoder.decode();
+      if (finalChunk.trim()) {
+        parseOpenRouterChunk(
+          `${finalChunk}\n\n`,
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing)
+        );
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setMessages((prev) =>
+          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
+        );
+        toast({
+          variant: 'destructive',
+          title: 'Retry failed.',
+          description: 'Unable to get a response from the selected model.',
         });
       }
     } finally {
@@ -1334,15 +1497,29 @@ export default function Home() {
                         )}
 
                         {message.content && (index < messages.length - 1 || !isLoading) ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleCopy(message.content)}
-                            aria-label="Copy message"
-                            className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            {!message.images ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenRetryPicker(index)}
+                                aria-label="Retry with another model"
+                                title="Retry with another model"
+                                className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
+                            ) : null}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleCopy(message.content)}
+                              aria-label="Copy message"
+                              className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
@@ -1554,6 +1731,89 @@ export default function Home() {
               Save Key
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isRetryModelPickerOpen}
+        onOpenChange={(open) => {
+          setIsRetryModelPickerOpen(open);
+          if (!open) {
+            setRetryTargetIndex(null);
+            setRetryModelSearch('');
+          }
+        }}
+      >
+        <DialogContent className="rounded-2xl border border-border/80 bg-card p-5 shadow-2xl sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold tracking-tight">
+              Retry with another model
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed text-muted-foreground">
+              Send the same prompt and conversation context to a different model. Your original response stays in the chat.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            {retryTargetMessage?.modelId ? (
+              <p className="rounded-xl border border-border/70 bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+                Original model:{' '}
+                <span className="font-semibold text-foreground">
+                  {openRouterModels.find((model) => model.id === retryTargetMessage.modelId)?.name || retryTargetMessage.modelId}
+                </span>
+              </p>
+            ) : null}
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={retryModelSearch}
+                onChange={(event) => setRetryModelSearch(event.target.value)}
+                placeholder="Search another model..."
+                className="h-10 rounded-xl border-border/80 bg-background/60 pl-9 text-xs"
+              />
+            </div>
+
+            <div className="max-h-[min(50vh,22rem)] overflow-y-auto rounded-xl border border-border/70 bg-card/70 divide-y divide-border/60">
+              {retryModels.length > 0 ? (
+                retryModels.map((model) => {
+                  const inputPrice = formatPricePerMillion(model.pricing?.prompt);
+                  const outputPrice = formatPricePerMillion(model.pricing?.completion);
+
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => void handleRetryWithModel(model.id)}
+                      className="flex w-full items-start justify-between gap-3 px-3.5 py-3 text-left transition-colors hover:bg-accent/70"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-foreground">{model.name || model.id}</p>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.id}</p>
+                        {inputPrice || outputPrice ? (
+                          <div className="mt-1.5 flex flex-wrap gap-x-2 text-[10px] font-mono text-muted-foreground">
+                            {inputPrice ? <span>In {inputPrice}</span> : null}
+                            {outputPrice ? <span>Out {outputPrice}</span> : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      {model.context_length ? (
+                        <span className="shrink-0 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                          {Math.round(model.context_length / 1024)}k ctx
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                  {openRouterModels.length
+                    ? 'No compatible models match your search.'
+                    : 'Add an API key and load models before retrying.'}
+                </div>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
