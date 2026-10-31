@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -37,24 +37,28 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
+  ArrowDown,
   ArrowUp,
   Bot,
   Check,
   ChevronDown,
   Copy,
+  Download,
   ExternalLink,
   FileText,
+  Globe,
   Image as ImageIcon,
   KeyRound,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
   Square,
-  User,
   X,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -135,6 +139,21 @@ const SUPPORTED_IMAGE_TYPES = new Set([
   'image/gif',
 ]);
 
+const SUGGESTED_PROMPTS = [
+  {
+    title: 'Explain a complex concept',
+    prompt: 'Explain quantum computing simply with a real-world analogy.',
+  },
+  {
+    title: 'Write clean code',
+    prompt: 'Write a TypeScript custom React hook for debouncing input with cleanup.',
+  },
+  {
+    title: 'System architecture',
+    prompt: 'Compare SQL vs NoSQL: tradeoffs in latency, consistency, and scalability.',
+  },
+];
+
 function isImageAttachment(attachment: Attachment) {
   return attachment.kind === 'image';
 }
@@ -174,6 +193,7 @@ const STORAGE_KEYS = {
   openRouterModel: 'prince-chat-openrouter-model',
   webSearchEnabled: 'prince-chat-web-search-enabled',
   reasoningEffort: 'prince-chat-reasoning-effort',
+  systemPrompt: 'prince-chat-system-prompt',
 };
 
 function formatPricePerMillion(price?: string) {
@@ -307,30 +327,30 @@ function CodeSnippet({
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border bg-muted/40 dark:bg-zinc-950">
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/70 px-3.5 py-1.5 text-xs text-muted-foreground dark:bg-zinc-900">
-        <span className="font-mono text-[11px] uppercase tracking-wider">
+    <div className="my-3 overflow-hidden rounded-xl border border-border/80 bg-zinc-950 text-zinc-100 dark:border-zinc-800">
+      <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/90 px-3.5 py-1.5 text-xs text-zinc-400">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
           {language || 'code'}
         </span>
         <button
           type="button"
           onClick={copyCode}
-          className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-background hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-emerald-500" />
+              <Check className="h-3 w-3 text-emerald-400" />
               <span>Copied</span>
             </>
           ) : (
             <>
               <Copy className="h-3 w-3" />
-              <span>Copy code</span>
+              <span>Copy</span>
             </>
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-foreground">
+      <pre className="overflow-x-auto p-3.5 font-mono text-[12.5px] leading-relaxed text-zinc-200">
         <code>{children}</code>
       </pre>
     </div>
@@ -344,19 +364,25 @@ export default function Home() {
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>('');
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
+  const [modelCategory, setModelCategory] = useState<'all' | 'vision' | 'image' | 'file'>('all');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isRetryModelPickerOpen, setIsRetryModelPickerOpen] = useState(false);
   const [retryTargetIndex, setRetryTargetIndex] = useState<number | null>(null);
   const [retryModelSearch, setRetryModelSearch] = useState('');
   const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingMessageContent, setEditingMessageContent] = useState('');
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -405,14 +431,20 @@ export default function Home() {
     selectedModelReasoning?.supported_efforts === null ||
     !selectedModelReasoning?.supported_efforts?.length ||
     selectedModelReasoning.supported_efforts.includes(reasoningEffort);
+
   const filteredOpenRouterModels = openRouterModels.filter((model) => {
+    const inputModalities = model.architecture?.input_modalities ?? [];
+    const outputModalities = model.architecture?.output_modalities ?? [];
+
+    if (modelCategory === 'vision' && !inputModalities.includes('image')) return false;
+    if (modelCategory === 'image' && !outputModalities.includes('image')) return false;
+    if (modelCategory === 'file' && !inputModalities.includes('file')) return false;
+
     const query = openRouterModelSearch.trim().toLowerCase();
     if (!query) {
       return true;
     }
 
-    const inputModalities = model.architecture?.input_modalities ?? [];
-    const outputModalities = model.architecture?.output_modalities ?? [];
     const searchableModelDetails = [
       model.id,
       model.name,
@@ -557,10 +589,10 @@ export default function Home() {
 
   useEffect(() => {
     if (prevIsLoading.current && !isLoading) {
-      form.setFocus('message');
+      composerTextareaRef.current?.focus();
     }
     prevIsLoading.current = isLoading;
-  }, [isLoading, form]);
+  }, [isLoading]);
 
   useEffect(() => {
     const storedOpenRouterApiKey =
@@ -573,15 +605,19 @@ export default function Home() {
     const storedReasoningEffort = localStorage.getItem(
       STORAGE_KEYS.reasoningEffort
     );
+    const storedSystemPrompt = localStorage.getItem(
+      STORAGE_KEYS.systemPrompt
+    );
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
     setSelectedOpenRouterModel(storedOpenRouterModel);
-    setWebSearchEnabled(storedWebSearchEnabled !== 'false');
+    setWebSearchEnabled(storedWebSearchEnabled === 'true');
     setReasoningEffort(
       REASONING_EFFORTS.includes(storedReasoningEffort as ReasoningEffort)
         ? (storedReasoningEffort as ReasoningEffort)
         : ''
     );
+    setSystemPrompt(storedSystemPrompt ?? '');
 
     if (storedOpenRouterApiKey) {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
@@ -604,6 +640,10 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.reasoningEffort, reasoningEffort);
   }, [reasoningEffort]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.systemPrompt, systemPrompt);
+  }, [systemPrompt]);
 
   useEffect(() => {
     const unsupportedAttachments = pendingAttachments.filter(
@@ -640,10 +680,41 @@ export default function Home() {
     });
   }, [messages]);
 
+  // Scroll-to-bottom detection
+  useEffect(() => {
+    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
+      '[data-radix-scroll-area-viewport]'
+    );
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      setShowScrollToBottom(distanceFromBottom > 140);
+    };
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
+      '[data-radix-scroll-area-viewport]'
+    );
+    viewport?.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, []);
+
   const handleNewChat = () => {
     setMessages([]);
     setPendingAttachments([]);
+    setEditingMessageIndex(null);
     form.reset();
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
   };
 
   const removePendingAttachment = (id: string) => {
@@ -794,6 +865,9 @@ export default function Home() {
     setMessages(newMessages);
     setPendingAttachments([]);
     form.reset();
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
     setIsLoading(true);
 
     const controller = new AbortController();
@@ -853,7 +927,12 @@ export default function Home() {
           },
           body: JSON.stringify({
             model: selectedModel,
-            messages: newMessages.map(toOpenRouterMessage),
+            messages: [
+              ...(systemPrompt.trim()
+                ? [{ role: 'system', content: systemPrompt.trim() }]
+                : []),
+              ...newMessages.map(toOpenRouterMessage),
+            ],
             stream: true,
             ...(webSearchEnabled
               ? { tools: [{ type: 'openrouter:web_search' }] }
@@ -982,7 +1061,12 @@ export default function Home() {
         },
         body: JSON.stringify({
           model: modelId,
-          messages: retryMessages.map(toOpenRouterMessage),
+          messages: [
+            ...(systemPrompt.trim()
+              ? [{ role: 'system', content: systemPrompt.trim() }]
+              : []),
+            ...retryMessages.map(toOpenRouterMessage),
+          ],
           stream: true,
           ...(webSearchEnabled
             ? { tools: [{ type: 'openrouter:web_search' }] }
@@ -1047,6 +1131,112 @@ export default function Home() {
     }
   };
 
+  const handleRegenerate = async (messageIndex: number) => {
+    if (isLoading || !openRouterApiKey.trim()) return;
+
+    const targetMessage = messages[messageIndex];
+    if (!targetMessage || targetMessage.role !== 'assistant') return;
+
+    const modelId = targetMessage.modelId || selectedModel;
+    if (!modelId) return;
+
+    const conversationUpToTarget = messages.slice(0, messageIndex);
+    const baseMessages = conversationUpToTarget;
+    setMessages(baseMessages);
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const regenerateModelMetadata = openRouterModels.find((m) => m.id === modelId);
+    const regenerateReasoning = regenerateModelMetadata?.reasoning;
+    const regenerateSupportsReasoningEffort =
+      Boolean(regenerateReasoning) &&
+      (regenerateReasoning?.supported_efforts === null ||
+        Boolean(regenerateReasoning?.supported_efforts?.length));
+    const regenerateReasoningEffortIsAvailable =
+      !reasoningEffort ||
+      regenerateReasoning?.supported_efforts === null ||
+      !regenerateReasoning?.supported_efforts?.length ||
+      regenerateReasoning.supported_efforts.includes(reasoningEffort);
+
+    try {
+      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openrouter-api-key': openRouterApiKey.trim(),
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [
+            ...(systemPrompt.trim()
+              ? [{ role: 'system', content: systemPrompt.trim() }]
+              : []),
+            ...baseMessages.map(toOpenRouterMessage),
+          ],
+          stream: true,
+          ...(webSearchEnabled
+            ? { tools: [{ type: 'openrouter:web_search' }] }
+            : {}),
+          ...(reasoningEffort &&
+          regenerateSupportsReasoningEffort &&
+          regenerateReasoningEffortIsAvailable
+            ? { reasoning: { effort: reasoningEffort } }
+            : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('The regeneration request failed.');
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '', modelId },
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bufferedChunk = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        bufferedChunk = parseOpenRouterChunk(
+          bufferedChunk + decoder.decode(value, { stream: true }),
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing)
+        );
+      }
+
+      const finalChunk = bufferedChunk + decoder.decode();
+      if (finalChunk.trim()) {
+        parseOpenRouterChunk(
+          `${finalChunk}\n\n`,
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing)
+        );
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setMessages((prev) =>
+          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
+        );
+        toast({
+          variant: 'destructive',
+          title: 'Regeneration failed.',
+          description: 'Unable to regenerate the response.',
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
@@ -1058,62 +1248,333 @@ export default function Home() {
 
   const handleSelectSuggestedPrompt = (prompt: string) => {
     form.setValue('message', prompt);
-    form.setFocus('message');
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.focus();
+      composerTextareaRef.current.style.height = 'auto';
+      composerTextareaRef.current.style.height = `${composerTextareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  const handleEditMessage = (index: number) => {
+    if (isLoading) return;
+    const message = messages[index];
+    if (!message || message.role !== 'user') return;
+    setEditingMessageIndex(index);
+    setEditingMessageContent(message.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageIndex(null);
+    setEditingMessageContent('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (editingMessageIndex === null || isLoading) return;
+
+    const hasApiKey = Boolean(openRouterApiKey.trim());
+    if (!hasApiKey || !selectedModel) return;
+
+    const editedContent = editingMessageContent.trim();
+    if (!editedContent) return;
+
+    const originalMessage = messages[editingMessageIndex];
+    const truncatedMessages: Message[] = messages.slice(0, editingMessageIndex);
+    const editedUserMessage: Message = {
+      ...originalMessage,
+      content: editedContent,
+    };
+    const newMessages = [...truncatedMessages, editedUserMessage];
+
+    setMessages(newMessages);
+    setEditingMessageIndex(null);
+    setEditingMessageContent('');
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const requestPricing = selectedModelMetadata?.pricing;
+      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openrouter-api-key': openRouterApiKey.trim(),
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            ...(systemPrompt.trim()
+              ? [{ role: 'system', content: systemPrompt.trim() }]
+              : []),
+            ...newMessages.map(toOpenRouterMessage),
+          ],
+          stream: true,
+          ...(webSearchEnabled
+            ? { tools: [{ type: 'openrouter:web_search' }] }
+            : {}),
+          ...(reasoningEffort &&
+          selectedModelSupportsReasoningEffort &&
+          selectedReasoningEffortIsAvailable
+            ? { reasoning: { effort: reasoningEffort } }
+            : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('The request failed.');
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '', modelId: selectedModel },
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bufferedChunk = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        bufferedChunk = parseOpenRouterChunk(
+          bufferedChunk + decoder.decode(value, { stream: true }),
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, requestPricing)
+        );
+      }
+
+      const finalChunk = bufferedChunk + decoder.decode();
+      if (finalChunk.trim()) {
+        parseOpenRouterChunk(
+          `${finalChunk}\n\n`,
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, requestPricing)
+        );
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setMessages((prev) =>
+          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
+        );
+        toast({
+          variant: 'destructive',
+          title: 'An error occurred.',
+          description: 'Failed to get a response after editing.',
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleErrorRetry = async () => {
+    if (isLoading || messages.length === 0) return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role !== 'user') return;
+
+    const hasApiKey = Boolean(openRouterApiKey.trim());
+    if (!hasApiKey || !selectedModel) {
+      toast({
+        title: 'Finish setup first',
+        description: !hasApiKey ? 'Add your OpenRouter API key.' : 'Select a model.',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const requestPricing = selectedModelMetadata?.pricing;
+      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-openrouter-api-key': openRouterApiKey.trim(),
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            ...(systemPrompt.trim()
+              ? [{ role: 'system', content: systemPrompt.trim() }]
+              : []),
+            ...messages.map(toOpenRouterMessage),
+          ],
+          stream: true,
+          ...(webSearchEnabled
+            ? { tools: [{ type: 'openrouter:web_search' }] }
+            : {}),
+          ...(reasoningEffort &&
+          selectedModelSupportsReasoningEffort &&
+          selectedReasoningEffortIsAvailable
+            ? { reasoning: { effort: reasoningEffort } }
+            : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('The request failed.');
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '', modelId: selectedModel },
+      ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bufferedChunk = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        bufferedChunk = parseOpenRouterChunk(
+          bufferedChunk + decoder.decode(value, { stream: true }),
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, requestPricing)
+        );
+      }
+
+      const finalChunk = bufferedChunk + decoder.decode();
+      if (finalChunk.trim()) {
+        parseOpenRouterChunk(
+          `${finalChunk}\n\n`,
+          appendAssistantText,
+          (usage) => updateAssistantUsage(usage, requestPricing)
+        );
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setMessages((prev) =>
+          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
+        );
+        toast({
+          variant: 'destructive',
+          title: 'Retry failed.',
+          description: 'Failed to get a response from OpenRouter.',
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleExportConversation = () => {
+    if (messages.length === 0) {
+      toast({
+        title: 'Nothing to export',
+        description: 'Start a conversation before exporting.',
+        duration: 2000,
+      });
+      return;
+    }
+
+    const lines: string[] = [
+      '# Prince Chat Export',
+      '',
+      `**Model:** ${selectedModelMetadata?.name || selectedModel || 'Unknown'}`,
+      `**Date:** ${new Date().toLocaleString()}`,
+      '',
+      '---',
+      '',
+    ];
+
+    for (const message of messages) {
+      if (message.role === 'user') {
+        lines.push('## 🧑 You', '', message.content, '');
+      } else {
+        const modelLabel = message.modelId
+          ? openRouterModels.find((m) => m.id === message.modelId)?.name || message.modelId
+          : 'Assistant';
+        lines.push(`## 🤖 ${modelLabel}`, '', message.content, '');
+        if (message.usage) {
+          lines.push(
+            `> *${message.usage.inputTokens.toLocaleString()} in · ${message.usage.outputTokens.toLocaleString()} out${
+              message.usage.estimatedCost !== null
+                ? ` · ≈ ${formatEstimatedCost(message.usage.estimatedCost)}`
+                : ''
+            }*`,
+            ''
+          );
+        }
+      }
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `prince-chat-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Conversation exported',
+      description: 'Your conversation has been downloaded as Markdown.',
+      duration: 2000,
+    });
   };
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      {/* Top Navigation Bar */}
-      <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl sm:px-7">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-violet-400 text-primary-foreground shadow-lg shadow-primary/20">
-            <Sparkles className="h-4 w-4" />
+      {/* Top Header */}
+      <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
+        {/* Left: Brand */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
+            <Sparkles className="h-3.5 w-3.5" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold tracking-[-0.02em]">Prince Chat</h1>
-              <span className="hidden rounded-md border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground sm:inline-block">OpenRouter</span>
-            </div>
-            <p className="hidden text-[10px] text-muted-foreground md:block">Your private AI workspace</p>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-sm font-semibold tracking-tight text-foreground">Prince</span>
+            <span className="hidden text-[10px] text-muted-foreground/80 sm:inline-block">AI Studio</span>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          {/* Model Selector Popover */}
+        {/* Center: Model Selector Pill */}
+        <div className="flex items-center">
           <Popover open={isModelPickerOpen} onOpenChange={setIsModelPickerOpen}>
             <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className="h-10 max-w-[175px] justify-between gap-2 rounded-xl border-border/80 bg-card/80 px-2.5 text-xs font-semibold shadow-sm transition-all hover:border-primary/30 hover:bg-accent/70 sm:max-w-[300px] sm:px-3"
+              <button
+                type="button"
+                className="group inline-flex max-w-[200px] items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:border-border hover:bg-muted/80 sm:max-w-[280px]"
                 aria-label="Choose model"
               >
                 <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">
-                  {selectedModelMetadata?.name || selectedOpenRouterModel || 'Select model'}
+                  {selectedModelMetadata?.name || selectedOpenRouterModel || 'Choose model'}
                 </span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60" />
-              </Button>
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+              </button>
             </PopoverTrigger>
             <PopoverContent
-              align="end"
-              className="w-[min(94vw,36rem)] rounded-2xl border border-border/80 bg-popover/95 p-3 shadow-2xl shadow-black/15 backdrop-blur-xl"
+              align="center"
+              className="w-[min(94vw,34rem)] rounded-2xl border border-border/80 bg-popover/98 p-3 shadow-2xl backdrop-blur-xl"
             >
-              <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
-                  <p className="text-sm font-bold tracking-tight text-foreground">Choose your model</p>
-                  <p className="text-xs text-muted-foreground">Compare capabilities and pricing per 1M tokens.</p>
+                  <p className="text-xs font-semibold text-foreground">Select Model</p>
+                  <p className="text-[11px] text-muted-foreground">Search available OpenRouter models</p>
                 </div>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => fetchOpenRouterModels(openRouterApiKey)}
                   disabled={isFetchingOpenRouterModels || !openRouterApiKey.trim()}
-                  className="h-8 gap-1.5 rounded-lg border-border/80 px-2.5 text-xs"
+                  className="h-7 gap-1.5 rounded-lg px-2 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  {isFetchingOpenRouterModels ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : null}
+                  <RefreshCw className={cn('h-3 w-3', isFetchingOpenRouterModels && 'animate-spin')} />
                   <span>Refresh</span>
                 </Button>
               </div>
@@ -1123,12 +1584,38 @@ export default function Home() {
                 <Input
                   value={openRouterModelSearch}
                   onChange={(event) => setOpenRouterModelSearch(event.target.value)}
-                  placeholder="Search models or capabilities..."
-                  className="h-10 rounded-xl border-border/80 bg-background/60 pl-8 text-xs"
+                  placeholder="Search by name, provider, or ID..."
+                  className="h-9 rounded-xl border-border/60 bg-muted/30 pl-8 text-xs"
                 />
               </div>
 
-              <div className="max-h-[min(55vh,27rem)] overflow-y-auto rounded-xl border border-border/70 bg-card/70 divide-y divide-border/60">
+              {/* Category Filter Chips */}
+              <div className="mb-2 flex flex-wrap gap-1 px-1">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'vision', label: 'Vision' },
+                    { id: 'image', label: 'Image Output' },
+                    { id: 'file', label: 'Documents' },
+                  ] as const
+                ).map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setModelCategory(cat.id)}
+                    className={cn(
+                      'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                      modelCategory === cat.id
+                        ? 'bg-foreground text-background'
+                        : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="max-h-[min(50vh,24rem)] overflow-y-auto rounded-xl border border-border/50 bg-background/50 divide-y divide-border/40">
                 {filteredOpenRouterModels.length > 0 ? (
                   filteredOpenRouterModels.map((model) => {
                     const isSelected = model.id === selectedOpenRouterModel;
@@ -1144,38 +1631,36 @@ export default function Home() {
                           setIsModelPickerOpen(false);
                         }}
                         className={cn(
-                          'flex w-full items-start justify-between gap-3 px-3.5 py-3 text-left transition-colors hover:bg-accent/70',
-                          isSelected && 'bg-primary/10'
+                          'flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60',
+                          isSelected && 'bg-muted/80'
                         )}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-xs font-bold text-foreground">
-                              {model.id}
+                            <span className="truncate text-xs font-semibold text-foreground">
+                              {model.name || model.id}
                             </span>
                             {model.architecture?.output_modalities?.includes('image') ? (
-                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                              <span className="rounded-md bg-amber-500/10 px-1.5 py-0.2 text-[9px] font-medium text-amber-600 dark:text-amber-400">
                                 Image
                               </span>
                             ) : null}
                             {model.architecture?.input_modalities?.includes('image') ? (
-                              <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+                              <span className="rounded-md bg-violet-500/10 px-1.5 py-0.2 text-[9px] font-medium text-violet-600 dark:text-violet-400">
                                 Vision
                               </span>
                             ) : null}
                             {model.architecture?.input_modalities?.includes('file') ? (
-                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                Files
+                              <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.2 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                                File
                               </span>
                             ) : null}
                           </div>
-                          {model.name && model.name !== model.id ? (
-                            <p className="truncate text-[11px] text-muted-foreground mt-0.5">
-                              {model.name}
-                            </p>
-                          ) : null}
+                          <p className="truncate text-[10px] text-muted-foreground font-mono mt-0.5">
+                            {model.id}
+                          </p>
                           {inputPrice || outputPrice ? (
-                            <div className="mt-1 flex gap-2 text-[11px] text-muted-foreground font-mono">
+                            <div className="mt-1 flex gap-2 text-[10px] text-muted-foreground/80 font-mono">
                               {inputPrice ? <span>In: {inputPrice}</span> : null}
                               {outputPrice ? <span>Out: {outputPrice}</span> : null}
                             </div>
@@ -1183,12 +1668,12 @@ export default function Home() {
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {model.context_length ? (
-                            <span className="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
-                              {Math.round(model.context_length / 1024)}k ctx
+                            <span className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground font-mono">
+                              {Math.round(model.context_length / 1024)}k
                             </span>
                           ) : null}
                           {isSelected ? (
-                            <Check className="h-4 w-4 text-primary" />
+                            <Check className="h-3.5 w-3.5 text-foreground" />
                           ) : null}
                         </div>
                       </button>
@@ -1197,64 +1682,69 @@ export default function Home() {
                 ) : (
                   <div className="py-8 text-center text-xs text-muted-foreground">
                     {openRouterApiKey.trim()
-                      ? 'No models match your search.'
-                      : 'Add an OpenRouter API key to load available models.'}
+                      ? 'No models match your filter.'
+                      : 'Add an API key to load models.'}
                   </div>
                 )}
               </div>
             </PopoverContent>
           </Popover>
+        </div>
 
-          {/* Response Controls Popover */}
+        {/* Right Actions */}
+        <div className="flex items-center gap-1">
+          {/* Response Controls */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label="Response controls"
-                className="relative h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Response controls"
+                className="relative h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               >
-                <SlidersHorizontal className="h-4 w-4" />
-                {webSearchEnabled || reasoningEffort ? (
-                  <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {webSearchEnabled || reasoningEffort || systemPrompt.trim() ? (
+                  <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-foreground" />
                 ) : null}
               </Button>
             </PopoverTrigger>
             <PopoverContent
               align="end"
-              className="w-[min(92vw,22rem)] rounded-2xl border border-border/80 bg-popover/95 p-4 shadow-2xl shadow-black/15 backdrop-blur-xl"
+              className="w-[min(92vw,22rem)] rounded-2xl border border-border/80 bg-popover/98 p-4 shadow-2xl backdrop-blur-xl"
             >
               <div className="mb-3">
-                <p className="text-sm font-bold tracking-tight text-foreground">Response controls</p>
-                <p className="text-xs text-muted-foreground">Applied to the next response.</p>
+                <p className="text-xs font-semibold text-foreground">Response Controls</p>
+                <p className="text-[11px] text-muted-foreground">Settings applied to following messages</p>
               </div>
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="space-y-0.5">
-                    <Label htmlFor="navbar-web-search" className="text-xs font-medium">
-                      Web search
+                    <Label htmlFor="popover-web-search" className="text-xs font-medium">
+                      Web search tool
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Enable real-time web search tool
+                      Allow model to fetch current internet information
                     </p>
                   </div>
                   <Switch
-                    id="navbar-web-search"
+                    id="popover-web-search"
                     checked={webSearchEnabled}
                     onCheckedChange={setWebSearchEnabled}
-                    aria-label="Enable web search"
+                    aria-label="Toggle web search"
                   />
                 </div>
 
-                <div className="space-y-2 border-t border-border pt-3">
+                <div className="space-y-2 border-t border-border/50 pt-3">
                   <div className="space-y-0.5">
-                    <Label htmlFor="navbar-reasoning-effort" className="text-xs font-medium">
+                    <Label htmlFor="popover-reasoning-effort" className="text-xs font-medium">
                       Reasoning effort
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
                       {selectedModelSupportsReasoningEffort
-                        ? 'Controls depth of model thinking'
-                        : 'Not configurable on current model'}
+                        ? 'Thinking depth for reasoning models'
+                        : 'Not supported by current model'}
                     </p>
                   </div>
                   <Select
@@ -1268,11 +1758,11 @@ export default function Home() {
                     }
                     disabled={!selectedModelSupportsReasoningEffort}
                   >
-                    <SelectTrigger id="navbar-reasoning-effort" className="h-8 rounded-lg text-xs">
+                    <SelectTrigger id="popover-reasoning-effort" className="h-8 rounded-lg text-xs">
                       <SelectValue placeholder="Model default" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">Model default</SelectItem>
+                      <SelectItem value="default" className="text-xs">Model default</SelectItem>
                       {reasoningEffortOptions.map((effort) => (
                         <SelectItem key={effort} value={effort} className="text-xs">
                           {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
@@ -1281,33 +1771,72 @@ export default function Home() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-2 border-t border-border/50 pt-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="popover-system-prompt" className="text-xs font-medium">
+                      System instructions
+                    </Label>
+                    {systemPrompt.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setSystemPrompt('')}
+                        className="text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                  <Textarea
+                    id="popover-system-prompt"
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                    placeholder="e.g. Provide direct, concise answers with minimal boilerplate."
+                    className="min-h-[68px] max-h-32 resize-y rounded-xl border-border/60 bg-muted/30 p-2 text-xs"
+                  />
+                </div>
               </div>
             </PopoverContent>
           </Popover>
 
-          {/* API Key Dialog Trigger */}
+          {/* Export Conversation */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleExportConversation}
+            disabled={messages.length === 0}
+            aria-label="Export conversation as Markdown"
+            title="Export conversation as Markdown"
+            className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-30"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+
+          {/* API Key */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setIsOpenRouterDialogOpen(true)}
-            aria-label="OpenRouter settings"
-            className="relative h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="OpenRouter API key"
+            title="OpenRouter API key"
+            className="relative h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
           >
-            <KeyRound className="h-4 w-4" />
+            <KeyRound className="h-3.5 w-3.5" />
             {!openRouterApiKey.trim() ? (
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
             ) : null}
           </Button>
 
-          {/* New Chat Button */}
+          {/* New Chat */}
           <Button
             variant="ghost"
             size="icon"
             onClick={handleNewChat}
-            aria-label="New Chat"
-            className="h-9 w-9 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Start new chat"
+            title="Start new chat"
+            className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
           </Button>
 
           {/* Theme Toggle */}
@@ -1315,23 +1844,23 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Chat Scroll Area */}
+      {/* Main Conversation Area */}
       <main className="relative min-h-0 flex-1 overflow-hidden">
         <ScrollArea ref={scrollAreaRef} className="h-full">
-          <div className="mx-auto min-h-full w-full max-w-4xl space-y-7 px-4 py-7 sm:px-6 sm:py-10">
+          <div className="mx-auto min-h-full w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+            {/* Empty State */}
             {messages.length === 0 ? (
-              <div className="flex min-h-[calc(100vh-250px)] flex-col items-center justify-center text-center">
-                <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-primary/20 bg-gradient-to-br from-primary/15 to-violet-500/10 text-primary shadow-xl shadow-primary/10">
-                  <Bot className="h-7 w-7" />
+              <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center text-center">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-border/80 bg-muted/40 text-foreground shadow-2xs">
+                  <Bot className="h-5 w-5" />
                 </div>
-                <span className="mb-2 rounded-full border border-border/80 bg-card/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Prince Chat</span>
-                <h2 className="text-3xl font-bold tracking-[-0.04em] text-foreground sm:text-4xl">
-                  Think clearly. Create freely.
+                <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                  What would you like to explore?
                 </h2>
-                <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
-                  {selectedModelMetadata?.name
-                    ? `${selectedModelMetadata.name} is ready to help.`
-                    : 'Choose a model, then start a conversation.'}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {selectedModelMetadata?.name || selectedOpenRouterModel
+                    ? `Ready with ${selectedModelMetadata?.name || selectedOpenRouterModel}`
+                    : 'Choose a model from the top to begin'}
                 </p>
 
                 {!openRouterApiKey.trim() ? (
@@ -1339,25 +1868,26 @@ export default function Home() {
                     variant="outline"
                     size="sm"
                     onClick={() => setIsOpenRouterDialogOpen(true)}
-                    className="mt-6 h-10 gap-2 rounded-xl border-amber-500/30 bg-amber-500/10 px-4 text-xs font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                    className="mt-5 h-8 gap-1.5 rounded-full border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
                   >
-                    <KeyRound className="h-3.5 w-3.5" />
+                    <KeyRound className="h-3 w-3 text-amber-500" />
                     <span>Enter OpenRouter API key</span>
                   </Button>
                 ) : (
-                  <div className="mt-7 flex max-w-2xl flex-wrap justify-center gap-2">
-                    {[
-                      'Explain how quantum computing works simply',
-                      'Write a clean React hook for debouncing',
-                      'Analyze tradeoffs between SQL and NoSQL',
-                    ].map((suggestion) => (
+                  <div className="mt-6 grid w-full max-w-lg gap-2 text-left sm:grid-cols-3">
+                    {SUGGESTED_PROMPTS.map((item) => (
                       <button
-                        key={suggestion}
+                        key={item.title}
                         type="button"
-                        onClick={() => handleSelectSuggestedPrompt(suggestion)}
-                        className="rounded-xl border border-border/80 bg-card/70 px-3.5 py-2 text-xs font-medium text-muted-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-accent hover:text-foreground hover:shadow-md"
+                        onClick={() => handleSelectSuggestedPrompt(item.prompt)}
+                        className="group flex flex-col justify-between rounded-xl border border-border/60 bg-muted/20 p-3 transition-all hover:border-border hover:bg-muted/50"
                       >
-                        {suggestion}
+                        <span className="text-xs font-semibold text-foreground group-hover:text-primary">
+                          {item.title}
+                        </span>
+                        <span className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                          {item.prompt}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1365,53 +1895,40 @@ export default function Home() {
               </div>
             ) : null}
 
+            {/* Messages */}
             {messages.map((message, index) => (
               <div
                 key={index}
                 className={cn(
-                  'flex items-start gap-3.5',
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
+                  'group flex flex-col',
+                  message.role === 'user' ? 'items-end' : 'items-start'
                 )}
               >
-                {message.role === 'assistant' ? (
-                  <Avatar className="h-8 w-8 shrink-0 rounded-xl border border-primary/15 shadow-sm">
-                    <AvatarFallback className="rounded-xl bg-primary/10 text-[10px] font-bold text-primary">
-                      AI
-                    </AvatarFallback>
-                  </Avatar>
-                ) : null}
-
-                <div
-                  className={cn(
-                    'group relative max-w-[88%] text-sm leading-relaxed sm:max-w-[80%]',
-                    message.role === 'user'
-                      ? 'rounded-2xl rounded-tr-md bg-gradient-to-br from-primary to-violet-500 px-4 py-3 text-primary-foreground shadow-lg shadow-primary/15'
-                      : 'rounded-2xl rounded-tl-md border border-border/70 bg-card/80 px-4 py-3.5 text-foreground shadow-sm backdrop-blur-sm'
-                  )}
-                >
-                  <div className="flex flex-col gap-2">
-                    {/* User Attachments Display */}
+                {/* User Message */}
+                {message.role === 'user' ? (
+                  <div className="flex max-w-[85%] flex-col items-end sm:max-w-[75%]">
+                    {/* User Attachments */}
                     {message.attachments && message.attachments.length > 0 ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
                         {message.attachments.map((attachment) =>
                           attachment.kind === 'image' ? (
                             <div
                               key={attachment.id}
-                              className="overflow-hidden rounded-xl border border-border bg-background/50"
+                              className="overflow-hidden rounded-xl border border-border/60 bg-muted/30"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={attachment.dataUrl}
                                 alt={attachment.name}
-                                className="max-h-64 w-full object-contain"
+                                className="max-h-48 w-auto object-contain"
                               />
                             </div>
                           ) : (
                             <div
                               key={attachment.id}
-                              className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-xs"
+                              className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 text-xs"
                             >
-                              <FileText className="h-3.5 w-3.5 shrink-0" />
+                              <FileText className="h-3 w-3 text-muted-foreground" />
                               <span className="truncate">{attachment.name}</span>
                             </div>
                           )
@@ -1419,13 +1936,84 @@ export default function Home() {
                       </div>
                     ) : null}
 
-                    {/* Assistant Generated Images */}
+                    {/* Inline Editing vs Normal View */}
+                    {editingMessageIndex === index ? (
+                      <div className="w-full min-w-[260px] rounded-2xl border border-border/80 bg-muted/40 p-2.5 sm:min-w-[340px]">
+                        <Textarea
+                          value={editingMessageContent}
+                          onChange={(e) => setEditingMessageContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              void handleSaveEdit();
+                            } else if (e.key === 'Escape') {
+                              handleCancelEdit();
+                            }
+                          }}
+                          className="min-h-[64px] resize-y rounded-xl border-border/60 bg-background text-xs"
+                          placeholder="Edit your prompt..."
+                          autoFocus
+                        />
+                        <div className="mt-2 flex items-center justify-end gap-1.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleCancelEdit}
+                            className="h-6 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void handleSaveEdit()}
+                            disabled={!editingMessageContent.trim() || isLoading}
+                            className="h-6 rounded-md bg-foreground px-2 text-[11px] font-medium text-background hover:bg-foreground/90 disabled:opacity-30"
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative rounded-2xl border border-border/50 bg-secondary/70 px-3.5 py-2 text-sm leading-relaxed text-foreground dark:bg-zinc-800/80">
+                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+
+                        {/* Hover Action Bar */}
+                        <div className="mt-1 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => handleEditMessage(index)}
+                            disabled={isLoading}
+                            aria-label="Edit message"
+                            title="Edit prompt"
+                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(message.content)}
+                            aria-label="Copy prompt"
+                            title="Copy prompt"
+                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Assistant Message: Clean, Borderless & Spacious */
+                  <div className="w-full max-w-full">
+                    {/* Generated Images */}
                     {message.images && message.images.length > 0 ? (
-                      <div className="grid gap-3 sm:grid-cols-2 my-1">
+                      <div className="my-2 grid gap-2.5 sm:grid-cols-2">
                         {message.images.map((image, imageIndex) => (
                           <div
                             key={`${image.url.slice(0, 32)}-${imageIndex}`}
-                            className="overflow-hidden rounded-xl border border-border bg-muted/20"
+                            className="overflow-hidden rounded-xl border border-border/60 bg-muted/20"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -1438,19 +2026,19 @@ export default function Home() {
                       </div>
                     ) : null}
 
-                    {/* Markdown Content */}
-                    <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                    {/* Markdown Body */}
+                    <div className="prose prose-zinc dark:prose-invert max-w-none text-[13.5px] leading-relaxed break-words">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
                           p: ({ node, ...props }) => (
-                            <p className="mb-2 last:mb-0 leading-relaxed" {...props} />
+                            <p className="mb-2 last:mb-0 leading-relaxed text-foreground" {...props} />
                           ),
                           ol: ({ node, ...props }) => (
-                            <ol className="my-2 ml-4 list-decimal space-y-1" {...props} />
+                            <ol className="my-2 ml-4 list-decimal space-y-1 text-foreground" {...props} />
                           ),
                           ul: ({ node, ...props }) => (
-                            <ul className="my-2 ml-4 list-disc space-y-1" {...props} />
+                            <ul className="my-2 ml-4 list-disc space-y-1 text-foreground" {...props} />
                           ),
                           li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
                           code: ({ node, className, children, ...props }) =>
@@ -1460,12 +2048,7 @@ export default function Home() {
                               </CodeSnippet>
                             ) : (
                               <code
-                                className={cn(
-                                  'rounded px-1.5 py-0.5 font-mono text-[13px]',
-                                  message.role === 'user'
-                                    ? 'bg-white/20 text-white'
-                                    : 'border border-border/60 bg-muted text-foreground'
-                                )}
+                                className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[12px] text-foreground"
                                 {...props}
                               >
                                 {children}
@@ -1477,14 +2060,13 @@ export default function Home() {
                       </ReactMarkdown>
                     </div>
 
-                    {message.role === 'assistant' &&
-                    (message.usage ||
-                      (message.content && (index < messages.length - 1 || !isLoading))) ? (
-                      <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-border/60 pt-2.5">
+                    {/* Assistant Footer: Token Usage & Actions */}
+                    {message.content && (index < messages.length - 1 || !isLoading) ? (
+                      <div className="mt-1.5 flex items-center justify-between gap-3 pt-1">
                         {message.usage ? (
                           <span
-                            className="truncate text-[10px] text-muted-foreground"
-                            title={`Input: ${message.usage.inputTokens.toLocaleString()} tokens · Output: ${message.usage.outputTokens.toLocaleString()} tokens${message.usage.estimatedCost !== null ? ` · Estimated cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
+                            className="text-[10px] text-muted-foreground/75 font-mono"
+                            title={`In: ${message.usage.inputTokens.toLocaleString()} · Out: ${message.usage.outputTokens.toLocaleString()}${message.usage.estimatedCost !== null ? ` · Cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
                           >
                             {formatTokenCount(message.usage.inputTokens)} in ·{' '}
                             {formatTokenCount(message.usage.outputTokens)} out
@@ -1496,88 +2078,126 @@ export default function Home() {
                           <span />
                         )}
 
-                        {message.content && (index < messages.length - 1 || !isLoading) ? (
-                          <div className="flex items-center gap-1">
-                            {!message.images ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
+                        <div className="flex items-center gap-1 opacity-70 transition-opacity hover:opacity-100">
+                          {!message.images ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void handleRegenerate(index)}
+                                disabled={isLoading}
+                                aria-label="Regenerate response"
+                                title="Regenerate"
+                                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => handleOpenRetryPicker(index)}
+                                disabled={isLoading}
                                 aria-label="Retry with another model"
-                                title="Retry with another model"
-                                className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
+                                title="Try another model"
+                                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                               >
                                 <RotateCcw className="h-3 w-3" />
-                              </Button>
-                            ) : null}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleCopy(message.content)}
-                              aria-label="Copy message"
-                              className="h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-muted hover:opacity-100 hover:text-foreground"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : null}
+                              </button>
+                            </>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(message.content)}
+                            aria-label="Copy response"
+                            title="Copy response"
+                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </div>
-                </div>
-
-                {message.role === 'user' ? (
-                  <Avatar className="h-8 w-8 shrink-0 rounded-xl border border-primary/15 shadow-sm">
-                    <AvatarFallback className="rounded-xl bg-primary/10 text-[11px] font-semibold text-primary">
-                      <User className="h-3.5 w-3.5" />
-                    </AvatarFallback>
-                  </Avatar>
-                ) : null}
+                )}
               </div>
             ))}
+
+            {/* Inline Error & Retry Banner */}
+            {!isLoading &&
+            messages.length > 0 &&
+            messages[messages.length - 1].role === 'user' ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bot className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Failed to get a response. Check your API key or model.</span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleErrorRetry()}
+                  className="h-6 gap-1 rounded-md border-destructive/30 bg-destructive/10 px-2 text-[11px] text-destructive hover:bg-destructive/20"
+                >
+                  <RefreshCw className="h-2.5 w-2.5" />
+                  <span>Retry</span>
+                </Button>
+              </div>
+            ) : null}
           </div>
         </ScrollArea>
+
+        {/* Floating Scroll-to-Bottom Button */}
+        {showScrollToBottom && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={scrollToBottom}
+            aria-label="Scroll to bottom"
+            title="Scroll to bottom"
+            className="absolute bottom-4 right-6 z-20 h-8 w-8 rounded-full border border-border/70 bg-background/90 shadow-md backdrop-blur-md hover:bg-muted"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </main>
 
-      {/* Bottom Composer Area */}
-      <footer className="z-10 shrink-0 border-t border-border/70 bg-background/80 px-4 pb-4 pt-3 backdrop-blur-xl sm:px-6 sm:pb-5">
-        <div className="mx-auto w-full max-w-4xl">
+      {/* Floating Modern Composer */}
+      <footer className="z-10 shrink-0 px-3 pb-3 pt-1 sm:px-6 sm:pb-4">
+        <div className="mx-auto w-full max-w-3xl">
           {/* Pending Attachments Strip */}
           {pendingAttachments.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-2 px-1">
+            <div className="mb-2 flex flex-wrap gap-1.5 px-1">
               {pendingAttachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="flex items-center gap-1.5 rounded-xl border border-border/80 bg-card/80 py-1.5 pl-2 pr-1 text-xs text-foreground shadow-sm"
+                  className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 py-1 pl-2 pr-1 text-xs"
                 >
                   {attachment.kind === 'image' ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={attachment.dataUrl}
                       alt=""
-                      className="h-6 w-6 rounded object-cover"
+                      className="h-5 w-5 rounded object-cover"
                     />
                   ) : (
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <FileText className="h-3 w-3 text-muted-foreground" />
                   )}
-                  <span className="max-w-[140px] truncate text-[11px] font-medium">
+                  <span className="max-w-[120px] truncate text-[11px]">
                     {attachment.name}
                   </span>
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon"
                     onClick={() => removePendingAttachment(attachment.id)}
-                    className="h-5 w-5 rounded-md text-muted-foreground hover:text-foreground"
+                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
                     aria-label={`Remove ${attachment.name}`}
                   >
                     <X className="h-3 w-3" />
-                  </Button>
+                  </button>
                 </div>
               ))}
             </div>
           ) : null}
 
+          {/* Composer Card */}
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>
               <input
@@ -1594,77 +2214,110 @@ export default function Home() {
                 control={form.control}
                 name="message"
                 render={({ field }) => (
-                  <FormItem className="flex-1">
+                  <FormItem>
                     <FormControl>
-                      <div className="relative flex items-center rounded-2xl border border-border/80 bg-card/95 p-1 shadow-lg shadow-black/[0.03] transition-all focus-within:border-primary/60 focus-within:ring-4 focus-within:ring-primary/10 dark:shadow-black/20">
-                        {/* Attachments Button */}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => attachmentInputRef.current?.click()}
-                          disabled={
-                            isLoading ||
-                            !selectedModelSupportsAttachments ||
-                            !openRouterApiKey.trim()
-                          }
-                          className="ml-0.5 h-10 w-10 shrink-0 rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          aria-label="Add images or documents"
-                          title={
-                            selectedModelSupportsAttachments
-                              ? 'Add images or PDF documents'
-                              : 'Choose a chat model that supports image or file input to add attachments'
-                          }
-                        >
-                          {selectedModelSupportsImageInput && selectedModelSupportsFileInput ? (
-                            <Paperclip className="h-4 w-4" />
-                          ) : selectedModelSupportsImageInput ? (
-                            <ImageIcon className="h-4 w-4" />
-                          ) : (
-                            <FileText className="h-4 w-4" />
-                          )}
-                        </Button>
-
-                        {/* Text Input */}
-                        <Input
-                          placeholder={
-                            selectedModelSupportsAttachments
-                              ? 'Ask about an image, document, or topic...'
-                              : 'Send a message...'
-                          }
-                          autoComplete="off"
+                      <div className="rounded-2xl border border-border/80 bg-card/90 p-2 shadow-xs transition-all focus-within:border-foreground/30 focus-within:shadow-sm dark:bg-zinc-900/90">
+                        {/* Auto-expanding Multi-line Textarea */}
+                        <Textarea
                           {...field}
+                          ref={(node) => {
+                            field.ref(node);
+                            // @ts-expect-error - assigning mutable ref
+                            composerTextareaRef.current = node;
+                          }}
+                          placeholder={
+                            selectedModelOutputsImage
+                              ? 'Describe the image you want to generate...'
+                              : selectedModelSupportsAttachments
+                                ? 'Send a message or attach images / documents...'
+                                : 'Send a message...'
+                          }
                           disabled={isLoading}
-                          className="h-11 flex-1 border-0 bg-transparent px-2 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+                          rows={1}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              void form.handleSubmit(onSubmit)();
+                            }
+                          }}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            const target = e.target;
+                            target.style.height = 'auto';
+                            target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
+                          }}
+                          className="min-h-[44px] max-h-44 w-full resize-none border-0 bg-transparent px-2.5 py-1 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
                         />
 
-                        {/* Send / Stop Button */}
-                        <div className="mr-1.5 shrink-0">
-                          {isLoading ? (
-                            <Button
+                        {/* Composer Toolbar */}
+                        <div className="mt-1 flex items-center justify-between border-t border-border/30 pt-1.5">
+                          {/* Left Tools */}
+                          <div className="flex items-center gap-1">
+                            {/* Attachment Button */}
+                            <button
                               type="button"
-                              size="icon"
-                              onClick={handleStopGenerating}
-                            className="h-9 w-9 rounded-xl bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                              aria-label="Stop generating"
-                            >
-                              <Square className="h-3.5 w-3.5 fill-current" />
-                              <span className="sr-only">Stop</span>
-                            </Button>
-                          ) : (
-                            <Button
-                              type="submit"
-                              size="icon"
+                              onClick={() => attachmentInputRef.current?.click()}
                               disabled={
-                                (!field.value.trim() && pendingAttachments.length === 0) || isLoading
+                                isLoading ||
+                                !selectedModelSupportsAttachments ||
+                                !openRouterApiKey.trim()
                               }
-                              className="h-9 w-9 rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20 transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:translate-y-0 disabled:opacity-40"
-                              aria-label="Send message"
+                              className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+                              title={
+                                selectedModelSupportsAttachments
+                                  ? 'Attach image or PDF'
+                                  : 'Model does not support attachments'
+                              }
                             >
-                              <ArrowUp className="h-4 w-4" />
-                              <span className="sr-only">Send</span>
-                            </Button>
-                          )}
+                              {selectedModelSupportsImageInput ? (
+                                <ImageIcon className="h-3.5 w-3.5" />
+                              ) : (
+                                <Paperclip className="h-3.5 w-3.5" />
+                              )}
+                              <span className="hidden text-[11px] sm:inline">Attach</span>
+                            </button>
+
+                            {/* Web Search Quick Toggle */}
+                            <button
+                              type="button"
+                              onClick={() => setWebSearchEnabled((prev) => !prev)}
+                              className={cn(
+                                'inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
+                                webSearchEnabled
+                                  ? 'bg-foreground text-background'
+                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                              )}
+                              title="Toggle Web Search tool"
+                            >
+                              <Globe className="h-3.5 w-3.5" />
+                              <span className="text-[11px]">Search</span>
+                            </button>
+                          </div>
+
+                          {/* Right: Submit / Stop */}
+                          <div className="flex items-center gap-1.5">
+                            {isLoading ? (
+                              <button
+                                type="button"
+                                onClick={handleStopGenerating}
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
+                                aria-label="Stop generation"
+                              >
+                                <Square className="h-3 w-3 fill-current" />
+                              </button>
+                            ) : (
+                              <button
+                                type="submit"
+                                disabled={
+                                  (!field.value.trim() && pendingAttachments.length === 0) || isLoading
+                                }
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-20"
+                                aria-label="Send prompt"
+                              >
+                                <ArrowUp className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </FormControl>
@@ -1673,10 +2326,6 @@ export default function Home() {
               />
             </form>
           </Form>
-
-          <p className="mt-2.5 text-center text-[10px] text-muted-foreground/75">
-            OpenRouter models can make mistakes. Always verify critical details.
-          </p>
         </div>
       </footer>
 
@@ -1685,13 +2334,13 @@ export default function Home() {
         open={isOpenRouterDialogOpen}
         onOpenChange={setIsOpenRouterDialogOpen}
       >
-        <DialogContent className="rounded-2xl border border-border/80 bg-card p-6 shadow-2xl sm:max-w-md">
+        <DialogContent className="rounded-2xl border border-border/80 bg-card p-5 shadow-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">
+            <DialogTitle className="text-base font-semibold">
               OpenRouter API Key
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Your API key is stored locally in your browser and used to authenticate with OpenRouter.
+              Stored locally in this browser. Requests are securely forwarded through your local proxy.
             </DialogDescription>
           </DialogHeader>
 
@@ -1705,7 +2354,7 @@ export default function Home() {
                   href="https://openrouter.ai/keys"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                  className="inline-flex items-center gap-1 text-[11px] text-foreground hover:underline"
                 >
                   <span>Get OpenRouter key</span>
                   <ExternalLink className="h-3 w-3" />
@@ -1717,16 +2366,16 @@ export default function Home() {
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
                 placeholder="sk-or-v1-..."
-                className="h-10 rounded-xl border-border/80 bg-background/60 font-mono text-xs"
+                className="h-9 rounded-xl border-border/80 bg-muted/40 font-mono text-xs"
               />
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter>
             <Button
               type="button"
               onClick={handleSaveOpenRouterSettings}
-              className="h-9 rounded-xl px-4 text-xs font-semibold shadow-md shadow-primary/20"
+              className="h-8 rounded-lg px-3 text-xs font-medium"
             >
               Save Key
             </Button>
@@ -1734,6 +2383,7 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
+      {/* Retry With Another Model Dialog */}
       <Dialog
         open={isRetryModelPickerOpen}
         onOpenChange={(open) => {
@@ -1744,37 +2394,37 @@ export default function Home() {
           }
         }}
       >
-        <DialogContent className="rounded-2xl border border-border/80 bg-card p-5 shadow-2xl sm:max-w-xl">
+        <DialogContent className="rounded-2xl border border-border/80 bg-card p-5 shadow-2xl sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">
-              Retry with another model
+            <DialogTitle className="text-base font-semibold">
+              Retry with Another Model
             </DialogTitle>
-            <DialogDescription className="text-xs leading-relaxed text-muted-foreground">
-              Send the same prompt and conversation context to a different model. Your original response stays in the chat.
+            <DialogDescription className="text-xs text-muted-foreground">
+              Send the same prompt to a different model.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-1">
             {retryTargetMessage?.modelId ? (
-              <p className="rounded-xl border border-border/70 bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
-                Original model:{' '}
+              <p className="rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+                Original:{' '}
                 <span className="font-semibold text-foreground">
-                  {openRouterModels.find((model) => model.id === retryTargetMessage.modelId)?.name || retryTargetMessage.modelId}
+                  {openRouterModels.find((m) => m.id === retryTargetMessage.modelId)?.name || retryTargetMessage.modelId}
                 </span>
               </p>
             ) : null}
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={retryModelSearch}
                 onChange={(event) => setRetryModelSearch(event.target.value)}
                 placeholder="Search another model..."
-                className="h-10 rounded-xl border-border/80 bg-background/60 pl-9 text-xs"
+                className="h-9 rounded-xl border-border/60 bg-muted/30 pl-8 text-xs"
               />
             </div>
 
-            <div className="max-h-[min(50vh,22rem)] overflow-y-auto rounded-xl border border-border/70 bg-card/70 divide-y divide-border/60">
+            <div className="max-h-[min(50vh,20rem)] overflow-y-auto rounded-xl border border-border/50 bg-background/50 divide-y divide-border/40">
               {retryModels.length > 0 ? (
                 retryModels.map((model) => {
                   const inputPrice = formatPricePerMillion(model.pricing?.prompt);
@@ -1785,21 +2435,21 @@ export default function Home() {
                       key={model.id}
                       type="button"
                       onClick={() => void handleRetryWithModel(model.id)}
-                      className="flex w-full items-start justify-between gap-3 px-3.5 py-3 text-left transition-colors hover:bg-accent/70"
+                      className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-bold text-foreground">{model.name || model.id}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.id}</p>
+                        <p className="truncate text-xs font-semibold text-foreground">{model.name || model.id}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{model.id}</p>
                         {inputPrice || outputPrice ? (
-                          <div className="mt-1.5 flex flex-wrap gap-x-2 text-[10px] font-mono text-muted-foreground">
+                          <div className="mt-1 flex gap-2 text-[10px] font-mono text-muted-foreground/80">
                             {inputPrice ? <span>In {inputPrice}</span> : null}
                             {outputPrice ? <span>Out {outputPrice}</span> : null}
                           </div>
                         ) : null}
                       </div>
                       {model.context_length ? (
-                        <span className="shrink-0 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-                          {Math.round(model.context_length / 1024)}k ctx
+                        <span className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
+                          {Math.round(model.context_length / 1024)}k
                         </span>
                       ) : null}
                     </button>
@@ -1808,8 +2458,8 @@ export default function Home() {
               ) : (
                 <div className="px-4 py-8 text-center text-xs text-muted-foreground">
                   {openRouterModels.length
-                    ? 'No compatible models match your search.'
-                    : 'Add an API key and load models before retrying.'}
+                    ? 'No compatible models found.'
+                    : 'Add an API key to load models.'}
                 </div>
               )}
             </div>

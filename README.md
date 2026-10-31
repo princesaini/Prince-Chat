@@ -7,14 +7,21 @@ It is designed for people who want a simple way to try different OpenRouter mode
 ## What you can do
 
 - Chat with OpenRouter text models and see responses stream in as they are generated.
+- Attach images or PDF documents when using multimodal vision or file-capable models.
 - Pick a model from a searchable list in the top navbar.
 - See each model's input and output price per one million tokens, plus its context-window size.
 - See the input and output tokens plus estimated cost beneath each text response.
+- Regenerate responses with the same model or retry with another compatible model.
+- Edit and resend any user message with automatic conversation branch updating.
+- Set custom system instructions or persona from the response controls.
 - Generate images when you choose a model that supports image output.
 - Turn OpenRouter web search on or off from the response-controls menu.
 - Set a reasoning effort level when the selected model supports it.
 - Stop a response while it is generating.
-- Copy an assistant response with one click.
+- Copy message contents or code blocks with one click.
+- Export your full conversation to a Markdown (`.md`) file.
+- Jump quickly to recent messages with the floating scroll-to-bottom button.
+- Retry failed requests directly with the inline retry banner.
 - Start a fresh chat at any time.
 - Use the app in light or dark mode on desktop or mobile.
 
@@ -63,8 +70,13 @@ Select the sliders icon in the navbar to open **Response controls**.
 
 - **Web search** lets a compatible model use OpenRouter's web-search tool for current information.
 - **Reasoning effort** controls how much extra thinking a compatible reasoning model uses. Higher settings may improve difficult answers, but can take longer and cost more. The menu only enables choices that the selected model reports as supported.
+- **System instructions** lets you specify custom instructions or personas that guide how the model responds across all messages.
 
 These controls apply to the next message you send and are remembered in the current browser.
+
+### Export conversation
+
+Select the download icon in the navbar to download your full conversation as a formatted Markdown (`.md`) file, including prompt attachments, timestamps, and token usage metrics.
 
 ### Generate an image
 
@@ -76,7 +88,7 @@ Select the plus icon in the navbar to clear the current conversation. Prince Cha
 
 ## Privacy and API keys
 
-Your OpenRouter API key, selected model, web-search preference, and reasoning preference are saved in your browser's local storage. The key is sent with requests through the app's local Next.js API route, which forwards the request to OpenRouter.
+Your OpenRouter API key, selected model, web-search preference, reasoning preference, and system instructions are saved in your browser's local storage. The key is sent with requests through the app's local Next.js API route, which forwards the request to OpenRouter.
 
 This is convenient for personal local use, but local storage is not a secure vault. Do not use this setup in a shared browser profile or on a device you do not trust. For a public or multi-user deployment, move key management to a secure server-side authentication flow.
 
