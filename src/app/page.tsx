@@ -60,34 +60,26 @@ import {
   Sparkles,
   Square,
   X,
+  PanelLeft,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
-
-type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-  attachments?: Attachment[];
-  usage?: MessageUsage;
-  images?: {
-    url: string;
-    mediaType: string;
-  }[];
-  modelId?: string;
-};
-
-type MessageUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number | null;
-};
-
-type Attachment = {
-  id: string;
-  name: string;
-  mediaType: string;
-  dataUrl: string;
-  kind: 'image' | 'file';
-};
+import { ChatSidebar } from '@/components/chat-sidebar';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  Attachment,
+  ChatSession,
+  Message,
+  MessageUsage,
+  ReasoningEffort,
+  generateChatTitle,
+  generateSessionId,
+  getAllSessions,
+  saveSession,
+  deleteSession,
+  clearAllSessions,
+  ACTIVE_SESSION_STORAGE_KEY,
+  SIDEBAR_OPEN_STORAGE_KEY,
+} from '@/lib/chat-sessions';
 
 type OpenRouterModel = {
   id: string;
@@ -108,14 +100,6 @@ type OpenRouterModel = {
     output_modalities?: string[];
   };
 };
-
-type ReasoningEffort =
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
 
 const REASONING_EFFORTS: ReasoningEffort[] = [
   'minimal',
@@ -194,6 +178,8 @@ const STORAGE_KEYS = {
   webSearchEnabled: 'prince-chat-web-search-enabled',
   reasoningEffort: 'prince-chat-reasoning-effort',
   systemPrompt: 'prince-chat-system-prompt',
+  activeSessionId: ACTIVE_SESSION_STORAGE_KEY,
+  sidebarOpen: SIDEBAR_OPEN_STORAGE_KEY,
 };
 
 function formatPricePerMillion(price?: string) {
@@ -360,6 +346,11 @@ function CodeSnippet({
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => generateSessionId());
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>('');
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
@@ -595,6 +586,8 @@ export default function Home() {
   }, [isLoading]);
 
   useEffect(() => {
+    let isMounted = true;
+
     const storedOpenRouterApiKey =
       localStorage.getItem(STORAGE_KEYS.openRouterApiKey) ?? '';
     const storedOpenRouterModel =
@@ -622,7 +615,277 @@ export default function Home() {
     if (storedOpenRouterApiKey) {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
     }
+
+    const initSessions = async () => {
+      try {
+        const storedSessions = await getAllSessions();
+        if (!isMounted) return;
+
+        setSessions(storedSessions);
+
+        const savedActiveId = localStorage.getItem(STORAGE_KEYS.activeSessionId);
+        const targetSession = storedSessions.find((s) => s.id === savedActiveId);
+
+        if (targetSession) {
+          setActiveSessionId(targetSession.id);
+          setMessages(targetSession.messages);
+          if (targetSession.modelId) {
+            setSelectedOpenRouterModel(targetSession.modelId);
+          }
+          if (targetSession.systemPrompt !== undefined) {
+            setSystemPrompt(targetSession.systemPrompt);
+          }
+          if (targetSession.webSearchEnabled !== undefined) {
+            setWebSearchEnabled(targetSession.webSearchEnabled);
+          }
+          if (targetSession.reasoningEffort !== undefined) {
+            setReasoningEffort(targetSession.reasoningEffort);
+          }
+        } else if (storedSessions.length > 0) {
+          const latest = storedSessions[0];
+          setActiveSessionId(latest.id);
+          setMessages(latest.messages);
+          if (latest.modelId) {
+            setSelectedOpenRouterModel(latest.modelId);
+          }
+          if (latest.systemPrompt !== undefined) {
+            setSystemPrompt(latest.systemPrompt);
+          }
+          if (latest.webSearchEnabled !== undefined) {
+            setWebSearchEnabled(latest.webSearchEnabled);
+          }
+          if (latest.reasoningEffort !== undefined) {
+            setReasoningEffort(latest.reasoningEffort);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to initialize sessions', err);
+      }
+    };
+
+    void initSessions();
+
+    const storedSidebarOpen = localStorage.getItem(STORAGE_KEYS.sidebarOpen);
+    if (storedSidebarOpen !== null) {
+      setIsSidebarOpen(storedSidebarOpen === 'true');
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem(STORAGE_KEYS.activeSessionId, activeSessionId);
+    }
+  }, [activeSessionId]);
+
+  const handleToggleSidebar = useCallback(() => {
+    if (isMobile) {
+      setIsMobileSidebarOpen((prev) => !prev);
+    } else {
+      setIsSidebarOpen((prev) => {
+        const next = !prev;
+        localStorage.setItem(STORAGE_KEYS.sidebarOpen, String(next));
+        return next;
+      });
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        handleToggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleToggleSidebar]);
+
+  const persistCurrentSession = useCallback(
+    async (
+      updatedMessages: Message[],
+      overrideTitle?: string,
+      targetId?: string
+    ) => {
+      const sessionId = targetId || activeSessionId;
+      if (!sessionId || updatedMessages.length === 0) {
+        return;
+      }
+
+      setSessions((prevSessions) => {
+        const existing = prevSessions.find((s) => s.id === sessionId);
+        const firstUserMsg = updatedMessages.find((m) => m.role === 'user');
+        const defaultTitle = firstUserMsg
+          ? generateChatTitle(
+              firstUserMsg.content ||
+                firstUserMsg.attachments?.[0]?.name ||
+                'New Chat'
+            )
+          : 'New Chat';
+        const title = overrideTitle || existing?.title || defaultTitle;
+
+        const updatedSession: ChatSession = {
+          id: sessionId,
+          title,
+          createdAt: existing?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          messages: updatedMessages,
+          modelId: selectedModel,
+          systemPrompt,
+          webSearchEnabled,
+          reasoningEffort,
+        };
+
+        const filtered = prevSessions.filter((s) => s.id !== sessionId);
+        const nextSessions = [updatedSession, ...filtered];
+        nextSessions.sort((a, b) => b.updatedAt - a.updatedAt);
+
+        void saveSession(updatedSession);
+
+        return nextSessions;
+      });
+    },
+    [activeSessionId, selectedModel, systemPrompt, webSearchEnabled, reasoningEffort]
+  );
+
+  const handleNewChat = () => {
+    if (isLoading) {
+      toast({
+        title: 'Generation in progress',
+        description: 'Please stop generation or wait for it to finish first.',
+      });
+      return;
+    }
+
+    const newId = generateSessionId();
+    setActiveSessionId(newId);
+    setMessages([]);
+    setPendingAttachments([]);
+    setEditingMessageIndex(null);
+    form.reset();
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
+    if (isMobile) {
+      setIsMobileSidebarOpen(false);
+    }
+  };
+
+  const handleSelectSession = (id: string) => {
+    if (id === activeSessionId) {
+      if (isMobile) setIsMobileSidebarOpen(false);
+      return;
+    }
+
+    if (isLoading) {
+      toast({
+        title: 'Generation in progress',
+        description: 'Please stop generation or wait for it to finish before switching chats.',
+      });
+      return;
+    }
+
+    const target = sessions.find((s) => s.id === id);
+    if (!target) return;
+
+    setActiveSessionId(target.id);
+    setMessages(target.messages);
+
+    if (target.modelId) {
+      setSelectedOpenRouterModel(target.modelId);
+    }
+    if (target.systemPrompt !== undefined) {
+      setSystemPrompt(target.systemPrompt);
+    }
+    if (target.webSearchEnabled !== undefined) {
+      setWebSearchEnabled(target.webSearchEnabled);
+    }
+    if (target.reasoningEffort !== undefined) {
+      setReasoningEffort(target.reasoningEffort);
+    }
+
+    setPendingAttachments([]);
+    setEditingMessageIndex(null);
+    form.reset();
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
+
+    if (isMobile) {
+      setIsMobileSidebarOpen(false);
+    }
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    try {
+      await deleteSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+
+      if (activeSessionId === id) {
+        const remaining = sessions.filter((s) => s.id !== id);
+        if (remaining.length > 0) {
+          const nextSession = remaining[0];
+          setActiveSessionId(nextSession.id);
+          setMessages(nextSession.messages);
+          if (nextSession.modelId) {
+            setSelectedOpenRouterModel(nextSession.modelId);
+          }
+        } else {
+          handleNewChat();
+        }
+      }
+
+      toast({
+        title: 'Conversation deleted',
+        duration: 2000,
+      });
+    } catch (err) {
+      console.error('Failed to delete session', err);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to delete conversation',
+      });
+    }
+  };
+
+  const handleRenameSession = (id: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+
+    setSessions((prev) => {
+      const target = prev.find((s) => s.id === id);
+      if (!target) return prev;
+      const updated = { ...target, title: trimmed, updatedAt: Date.now() };
+      void saveSession(updated);
+      return prev.map((s) => (s.id === id ? updated : s));
+    });
+
+    toast({
+      title: 'Conversation renamed',
+      duration: 2000,
+    });
+  };
+
+  const handleClearAllSessions = async () => {
+    try {
+      await clearAllSessions();
+      setSessions([]);
+      handleNewChat();
+      toast({
+        title: 'All conversations cleared',
+        duration: 2000,
+      });
+    } catch (err) {
+      console.error('Failed to clear sessions', err);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to clear conversations',
+      });
+    }
+  };
 
   useEffect(() => {
     if (selectedOpenRouterModel) {
@@ -706,16 +969,6 @@ export default function Home() {
       behavior: 'smooth',
     });
   }, []);
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setPendingAttachments([]);
-    setEditingMessageIndex(null);
-    form.reset();
-    if (composerTextareaRef.current) {
-      composerTextareaRef.current.style.height = 'auto';
-    }
-  };
 
   const removePendingAttachment = (id: string) => {
     setPendingAttachments((current) =>
@@ -803,6 +1056,10 @@ export default function Home() {
 
   const handleStopGenerating = () => {
     abortControllerRef.current?.abort();
+    setMessages((latest) => {
+      void persistCurrentSession(latest);
+      return latest;
+    });
   };
 
   const handleSaveOpenRouterSettings = async () => {
@@ -863,6 +1120,7 @@ export default function Home() {
     ];
 
     setMessages(newMessages);
+    void persistCurrentSession(newMessages);
     setPendingAttachments([]);
     form.reset();
     if (composerTextareaRef.current) {
@@ -908,15 +1166,15 @@ export default function Home() {
           throw new Error('The image generation response did not contain any images.');
         }
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: `Generated ${images.length} image${images.length > 1 ? 's' : ''}.`,
-            images,
-            modelId: selectedModel,
-          },
-        ]);
+        const imageAssistantMsg: Message = {
+          role: 'assistant',
+          content: `Generated ${images.length} image${images.length > 1 ? 's' : ''}.`,
+          images,
+          modelId: selectedModel,
+        };
+        const finalImageMessages: Message[] = [...newMessages, imageAssistantMsg];
+        setMessages(finalImageMessages);
+        void persistCurrentSession(finalImageMessages);
       } else {
         const requestPricing = selectedModelMetadata?.pricing;
         const response = await fetch('/api/openrouter/api/v1/chat/completions', {
@@ -984,14 +1242,22 @@ export default function Home() {
             (usage) => updateAssistantUsage(usage, requestPricing)
           );
         }
+
+        setMessages((latest) => {
+          void persistCurrentSession(latest);
+          return latest;
+        });
       }
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         console.log('Generation stopped by user.');
       } else {
-        setMessages((prev) =>
-          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
-        );
+        setMessages((prev) => {
+          const next =
+            prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev;
+          void persistCurrentSession(next);
+          return next;
+        });
         toast({
           variant: 'destructive',
           title: 'An error occurred.',
@@ -1114,11 +1380,19 @@ export default function Home() {
           (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing)
         );
       }
+
+      setMessages((latest) => {
+        void persistCurrentSession(latest);
+        return latest;
+      });
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        setMessages((prev) =>
-          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
-        );
+        setMessages((prev) => {
+          const next =
+            prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev;
+          void persistCurrentSession(next);
+          return next;
+        });
         toast({
           variant: 'destructive',
           title: 'Retry failed.',
@@ -1220,11 +1494,19 @@ export default function Home() {
           (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing)
         );
       }
+
+      setMessages((latest) => {
+        void persistCurrentSession(latest);
+        return latest;
+      });
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        setMessages((prev) =>
-          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
-        );
+        setMessages((prev) => {
+          const next =
+            prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev;
+          void persistCurrentSession(next);
+          return next;
+        });
         toast({
           variant: 'destructive',
           title: 'Regeneration failed.',
@@ -1286,6 +1568,7 @@ export default function Home() {
     const newMessages = [...truncatedMessages, editedUserMessage];
 
     setMessages(newMessages);
+    void persistCurrentSession(newMessages);
     setEditingMessageIndex(null);
     setEditingMessageContent('');
     setIsLoading(true);
@@ -1354,11 +1637,19 @@ export default function Home() {
           (usage) => updateAssistantUsage(usage, requestPricing)
         );
       }
+
+      setMessages((latest) => {
+        void persistCurrentSession(latest);
+        return latest;
+      });
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        setMessages((prev) =>
-          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
-        );
+        setMessages((prev) => {
+          const next =
+            prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev;
+          void persistCurrentSession(next);
+          return next;
+        });
         toast({
           variant: 'destructive',
           title: 'An error occurred.',
@@ -1451,11 +1742,19 @@ export default function Home() {
           (usage) => updateAssistantUsage(usage, requestPricing)
         );
       }
+
+      setMessages((latest) => {
+        void persistCurrentSession(latest);
+        return latest;
+      });
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        setMessages((prev) =>
-          prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev
-        );
+        setMessages((prev) => {
+          const next =
+            prev[prev.length - 1]?.role === 'assistant' ? prev.slice(0, -1) : prev;
+          void persistCurrentSession(next);
+          return next;
+        });
         toast({
           variant: 'destructive',
           title: 'Retry failed.',
@@ -1478,8 +1777,11 @@ export default function Home() {
       return;
     }
 
+    const currentSession = sessions.find((s) => s.id === activeSessionId);
+    const sessionTitle = currentSession?.title || 'Prince Chat Export';
+
     const lines: string[] = [
-      '# Prince Chat Export',
+      `# ${sessionTitle}`,
       '',
       `**Model:** ${selectedModelMetadata?.name || selectedModel || 'Unknown'}`,
       `**Date:** ${new Date().toLocaleString()}`,
@@ -1513,7 +1815,10 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `prince-chat-${new Date().toISOString().slice(0, 10)}.md`;
+    const titleSlug = currentSession?.title
+      ? currentSession.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32)
+      : 'prince-chat';
+    link.download = `${titleSlug}-${new Date().toISOString().slice(0, 10)}.md`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1527,19 +1832,48 @@ export default function Home() {
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      {/* Top Header */}
-      <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
-        {/* Left: Brand */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
-            <Sparkles className="h-3.5 w-3.5" />
+    <div className="relative flex h-full w-full overflow-hidden bg-background text-foreground">
+      {/* Sidebar */}
+      <ChatSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+        onNewChat={handleNewChat}
+        onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        onClearAllSessions={handleClearAllSessions}
+        isOpen={isMobile ? isMobileSidebarOpen : isSidebarOpen}
+        onToggleOpen={handleToggleSidebar}
+        isMobile={isMobile}
+        isLoading={isLoading}
+      />
+
+      {/* Main Content Area */}
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Top Header */}
+        <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
+          {/* Left: Sidebar Toggle + Brand */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleToggleSidebar}
+              aria-label="Toggle chat history"
+              title="Toggle chat history (Ctrl+B)"
+              className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
+                <Sparkles className="h-3.5 w-3.5" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-sm font-semibold tracking-tight text-foreground">Prince</span>
+                <span className="hidden text-[10px] text-muted-foreground/80 sm:inline-block">AI Studio</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-sm font-semibold tracking-tight text-foreground">Prince</span>
-            <span className="hidden text-[10px] text-muted-foreground/80 sm:inline-block">AI Studio</span>
-          </div>
-        </div>
 
         {/* Center: Model Selector Pill */}
         <div className="flex items-center">
@@ -2328,6 +2662,7 @@ export default function Home() {
           </Form>
         </div>
       </footer>
+      </div>
 
       {/* OpenRouter API Key Dialog */}
       <Dialog

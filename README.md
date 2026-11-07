@@ -22,6 +22,8 @@ It is designed for people who want a simple way to try different OpenRouter mode
 - Export your full conversation to a Markdown (`.md`) file.
 - Jump quickly to recent messages with the floating scroll-to-bottom button.
 - Retry failed requests directly with the inline retry banner.
+- Manage multiple persistent chat conversations with automatic history saving and a collapsible sidebar.
+- Search, rename, switch between, or delete past conversations.
 - Start a fresh chat at any time.
 - Use the app in light or dark mode on desktop or mobile.
 
@@ -82,9 +84,16 @@ Select the download icon in the navbar to download your full conversation as a f
 
 Choose a model marked `Image`, then enter a description of the image you want. Prince Chat sends the prompt to OpenRouter's image endpoint and displays the generated images in the conversation.
 
-### Start over
+### Manage chat history and sessions
 
-Select the plus icon in the navbar to clear the current conversation. Prince Chat does not keep a chat-history library: messages exist only while the page is open and are cleared when you refresh or close it.
+Prince Chat automatically saves your conversations locally in your browser using IndexedDB with local-storage fallback, so your conversations persist across page refreshes and browser restarts.
+
+- Select the sidebar icon in the top header (or press `Ctrl+B`) to open or close the **Chat history** sidebar.
+- Conversations are automatically titled based on your first prompt and organized into chronological groups (*Today*, *Yesterday*, *Previous 7 Days*, *Previous 30 Days*, and *Older*).
+- Search your conversations by title or message content using the search bar at the top of the sidebar.
+- Hover over any conversation to rename its title with the pencil icon or delete it with the trash icon.
+- Select **New Chat** in the sidebar or the plus icon in the navbar at any time to start a fresh conversation.
+- Clear all saved chat history at once using the **Clear all** button at the bottom of the sidebar.
 
 ## Privacy and API keys
 
