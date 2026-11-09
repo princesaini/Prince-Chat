@@ -2092,20 +2092,20 @@ export default function Home() {
         <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
           {/* Left: Sidebar Toggle, Quick Actions & Brand */}
           <div className="flex items-center gap-1.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleToggleSidebar}
-              aria-label={isSidebarOpen && !isMobile ? 'Collapse sidebar' : 'Expand sidebar'}
-              title={isSidebarOpen && !isMobile ? 'Collapse sidebar (Ctrl+B)' : 'Expand sidebar (Ctrl+B)'}
-              className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-            >
-              <PanelLeft className="h-4 w-4" />
-            </Button>
-
-            {/* When sidebar is collapsed (or on mobile), keep New Chat and Search buttons visible! */}
+            {/* When sidebar is collapsed (or on mobile), show Toggle, New Chat, and Search buttons */}
             {(!isSidebarOpen || isMobile) && (
               <div className="flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleToggleSidebar}
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar (Ctrl+B)"
+                  className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </Button>
+
                 <Button
                   variant="ghost"
                   size="icon"
@@ -2117,6 +2117,7 @@ export default function Home() {
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
+
                 <Button
                   variant="ghost"
                   size="icon"
@@ -2130,7 +2131,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex items-center gap-2 pl-1">
+            <div className={cn('flex items-center gap-2', (!isSidebarOpen || isMobile) && 'pl-1')}>
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
