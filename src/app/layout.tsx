@@ -3,6 +3,7 @@ import './globals.css';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css';
 import { Toaster } from "@/components/ui/toaster"
+import { Analytics } from '@vercel/analytics/next';
 
 export const metadata: Metadata = {
   title: 'Prince AI Studio',
@@ -24,6 +25,7 @@ export default function RootLayout({
       <body className="font-body antialiased h-full" suppressHydrationWarning>
         {children}
         <Toaster />
+        <Analytics />
       </body>
     </html>
   );
