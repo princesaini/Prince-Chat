@@ -4,6 +4,8 @@ Prince Chat is a small, private-feeling chat interface for OpenRouter. Add your 
 
 It is designed for people who want a simple way to try different OpenRouter models without configuring environment variables or building their own API client first.
 
+<img width="2542" height="1361" alt="image" src="https://github.com/user-attachments/assets/d6b27a59-42c5-499c-8663-1956866abaaa" />
+
 ## What you can do
 
 - Chat with OpenRouter text models and see responses stream in as they are generated.
