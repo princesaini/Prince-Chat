@@ -12,7 +12,6 @@ import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -2038,7 +2037,7 @@ export default function Home() {
                 className="relative h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                {webSearchEnabled || reasoningEffort || systemPrompt.trim() ? (
+                {reasoningEffort || systemPrompt.trim() ? (
                   <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-foreground" />
                 ) : null}
               </Button>
@@ -2053,24 +2052,7 @@ export default function Home() {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="popover-web-search" className="text-xs font-medium">
-                      Web search tool
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Allow model to fetch current internet information
-                    </p>
-                  </div>
-                  <Switch
-                    id="popover-web-search"
-                    checked={webSearchEnabled}
-                    onCheckedChange={setWebSearchEnabled}
-                    aria-label="Toggle web search"
-                  />
-                </div>
-
-                <div className="space-y-2 border-t border-border/50 pt-3">
+                <div className="space-y-2">
                   <div className="space-y-0.5">
                     <Label htmlFor="popover-reasoning-effort" className="text-xs font-medium">
                       Reasoning effort

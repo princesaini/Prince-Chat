@@ -15,7 +15,7 @@ It is designed for people who want a simple way to try different OpenRouter mode
 - Edit and resend any user message with automatic conversation branch updating.
 - Set custom system instructions or persona from the response controls.
 - Generate images when you choose a model that supports image output.
-- Turn OpenRouter web search on or off from the response-controls menu.
+- Turn OpenRouter web search on or off with the quick search toggle in the composer.
 - Set a reasoning effort level when the selected model supports it.
 - Stop a response while it is generating.
 - Copy message contents or code blocks with one click.
@@ -70,11 +70,14 @@ Use the refresh button in the picker after changing your API key or when you wan
 
 Select the sliders icon in the navbar to open **Response controls**.
 
-- **Web search** lets a compatible model use OpenRouter's web-search tool for current information.
 - **Reasoning effort** controls how much extra thinking a compatible reasoning model uses. Higher settings may improve difficult answers, but can take longer and cost more. The menu only enables choices that the selected model reports as supported.
 - **System instructions** lets you specify custom instructions or personas that guide how the model responds across all messages.
 
 These controls apply to the next message you send and are remembered in the current browser.
+
+### Web search
+
+Select the **Search** button directly in the message composer toolbar to toggle OpenRouter web search on or off for compatible models.
 
 ### Export conversation
 
