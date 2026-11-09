@@ -146,13 +146,21 @@ function SidebarInner({
       {/* New Chat Button */}
       <div className="p-3">
         <Button
-          onClick={onNewChat}
+          onClick={() => {
+            onNewChat();
+            if (onClose) onClose();
+          }}
           disabled={isLoading}
           variant="outline"
-          className="h-9 w-full justify-start gap-2 rounded-xl border-border/70 bg-card/70 px-3 text-xs font-medium text-foreground shadow-2xs transition-all hover:border-border hover:bg-muted disabled:opacity-50"
+          className="h-9 w-full justify-between rounded-xl border-border/70 bg-card/70 px-3 text-xs font-medium text-foreground shadow-2xs transition-all hover:border-border hover:bg-muted disabled:opacity-50"
         >
-          <Plus className="h-4 w-4 shrink-0 text-foreground" />
-          <span>New Chat</span>
+          <div className="flex items-center gap-2">
+            <Plus className="h-4 w-4 shrink-0 text-foreground" />
+            <span>New Chat</span>
+          </div>
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/80">
+            Ctrl+Shift+O
+          </kbd>
         </Button>
       </div>
 
@@ -164,7 +172,7 @@ function SidebarInner({
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search conversations..."
+              placeholder="Search conversations... (Ctrl+K)"
               className="h-8 rounded-lg border-border/50 bg-muted/30 pl-8 pr-7 text-xs placeholder:text-muted-foreground/60"
             />
             {searchQuery && (

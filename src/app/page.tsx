@@ -70,6 +70,7 @@ import {
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ChatSidebar } from '@/components/chat-sidebar';
 import { ThinkingAccordion } from '@/components/thinking-accordion';
+import { SearchChatsDialog } from '@/components/search-chats-dialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   fetchOpenRouterKeyInfo,
@@ -422,6 +423,7 @@ export default function Home() {
   const [openRouterModelSearch, setOpenRouterModelSearch] = useState('');
   const [modelCategory, setModelCategory] = useState<'all' | 'vision' | 'image' | 'file'>('all');
   const [isOpenRouterDialogOpen, setIsOpenRouterDialogOpen] = useState(false);
+  const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isRetryModelPickerOpen, setIsRetryModelPickerOpen] = useState(false);
   const [retryTargetIndex, setRetryTargetIndex] = useState<number | null>(null);
@@ -802,16 +804,45 @@ export default function Home() {
     }
   }, [isMobile]);
 
+  const handleNewChat = useCallback(() => {
+    if (isLoading) {
+      toast({
+        title: 'Generation in progress',
+        description: 'Please stop generation or wait for it to finish first.',
+      });
+      return;
+    }
+
+    const newId = generateSessionId();
+    setActiveSessionId(newId);
+    setMessages([]);
+    setPendingAttachments([]);
+    setEditingMessageIndex(null);
+    form.reset();
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
+    if (isMobile) {
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isLoading, isMobile, toast, form]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         handleToggleSidebar();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchDialogOpen((prev) => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        handleNewChat();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleToggleSidebar]);
+  }, [handleToggleSidebar, handleNewChat]);
 
   const persistCurrentSession = useCallback(
     async (
@@ -859,29 +890,6 @@ export default function Home() {
     },
     [activeSessionId, selectedModel, systemPrompt, webSearchEnabled, reasoningEffort]
   );
-
-  const handleNewChat = () => {
-    if (isLoading) {
-      toast({
-        title: 'Generation in progress',
-        description: 'Please stop generation or wait for it to finish first.',
-      });
-      return;
-    }
-
-    const newId = generateSessionId();
-    setActiveSessionId(newId);
-    setMessages([]);
-    setPendingAttachments([]);
-    setEditingMessageIndex(null);
-    form.reset();
-    if (composerTextareaRef.current) {
-      composerTextareaRef.current.style.height = 'auto';
-    }
-    if (isMobile) {
-      setIsMobileSidebarOpen(false);
-    }
-  };
 
   const handleSelectSession = (id: string) => {
     if (id === activeSessionId) {
@@ -2082,19 +2090,47 @@ export default function Home() {
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top Header */}
         <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
-          {/* Left: Sidebar Toggle + Brand */}
-          <div className="flex items-center gap-2">
+          {/* Left: Sidebar Toggle, Quick Actions & Brand */}
+          <div className="flex items-center gap-1.5">
             <Button
               variant="ghost"
               size="icon"
               onClick={handleToggleSidebar}
-              aria-label="Toggle chat history"
-              title="Toggle chat history (Ctrl+B)"
+              aria-label={isSidebarOpen && !isMobile ? 'Collapse sidebar' : 'Expand sidebar'}
+              title={isSidebarOpen && !isMobile ? 'Collapse sidebar (Ctrl+B)' : 'Expand sidebar (Ctrl+B)'}
               className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
-            <div className="flex items-center gap-2">
+
+            {/* When sidebar is collapsed (or on mobile), keep New Chat and Search buttons visible! */}
+            {(!isSidebarOpen || isMobile) && (
+              <div className="flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleNewChat}
+                  disabled={isLoading}
+                  aria-label="Start new chat"
+                  title="New chat (Ctrl+Shift+O)"
+                  className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-40"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSearchDialogOpen(true)}
+                  aria-label="Search conversations"
+                  title="Search conversations (Ctrl+K)"
+                  className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pl-1">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
@@ -2397,18 +2433,6 @@ export default function Home() {
             {!openRouterApiKey.trim() ? (
               <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
             ) : null}
-          </Button>
-
-          {/* New Chat */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewChat}
-            aria-label="Start new chat"
-            title="Start new chat"
-            className="h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
           </Button>
 
           {/* Theme Toggle */}
@@ -3143,6 +3167,15 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Search Conversations Modal (Accessible via Header Button or Ctrl+K) */}
+      <SearchChatsDialog
+        open={isSearchDialogOpen}
+        onOpenChange={setIsSearchDialogOpen}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+      />
     </div>
   );
 }

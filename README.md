@@ -7,7 +7,7 @@ It is designed for people who want a simple way to try different OpenRouter mode
 ## What you can do
 
 - Chat with OpenRouter text models and see responses stream in as they are generated.
-- Collapsible Thinking / Reasoning stream display with live timing for reasoning models (DeepSeek, OpenAI o-series, Gemini Thinking, Claude thinking tokens, or `<think>` blocks).
+- Collapsible Thinking / Reasoning stream display with live timing for reasoning models (DeepSeek, OpenAI o-series, Gemini Thinking, or `<think>` blocks).
 - Real-time OpenRouter account credits & key monitor with a quick header balance badge and detailed usage breakdown.
 - Syntax-highlighted code blocks with language badges and one-click code copy.
 - LaTeX mathematical notation rendering via KaTeX for inline (`$...$`) and block (`$$...$$`) equations.
@@ -114,10 +114,12 @@ Choose a model marked `Image`, then enter a description of the image you want. P
 Prince Chat automatically saves your conversations locally in your browser using IndexedDB with local-storage fallback, so your conversations persist across page refreshes and browser restarts.
 
 - Select the sidebar icon in the top header (or press `Ctrl+B`) to open or close the **Chat history** sidebar.
+- **Persistent Header Actions when Collapsed:** When the sidebar is collapsed, the **New Chat** (`+`) and **Search** (`🔍`) buttons remain visible in the top-left navigation header so you always have instant access to start or search conversations without reopening the sidebar.
+- **Quick Search Palette (`Ctrl+K`):** Press `Ctrl+K` or click the search icon anytime to open the keyboard-navigable search dialog with instant live matching across both titles and message snippets.
 - Conversations are automatically titled based on your first prompt and organized into chronological groups (*Today*, *Yesterday*, *Previous 7 Days*, *Previous 30 Days*, and *Older*).
-- Search your conversations by title or message content using the search bar at the top of the sidebar.
+- Search your conversations by title or message content using the search bar in the sidebar or the `Ctrl+K` command dialog.
 - Hover over any conversation to rename its title with the pencil icon or delete it with the trash icon.
-- Select **New Chat** in the sidebar or the plus icon in the navbar at any time to start a fresh conversation.
+- Start a fresh conversation anytime with `Ctrl+Shift+O`, the **New Chat** button in the sidebar, or the header button.
 - Clear all saved chat history at once using the **Clear all** button at the bottom of the sidebar.
 
 ## Privacy and API keys
