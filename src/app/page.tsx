@@ -184,11 +184,11 @@ function toOpenRouterMessage(message: Message) {
 }
 
 const STORAGE_KEYS = {
-  openRouterApiKey: 'prince-chat-openrouter-api-key',
-  openRouterModel: 'prince-chat-openrouter-model',
-  webSearchEnabled: 'prince-chat-web-search-enabled',
-  reasoningEffort: 'prince-chat-reasoning-effort',
-  systemPrompt: 'prince-chat-system-prompt',
+  openRouterApiKey: 'prince-ai-studio-openrouter-api-key',
+  openRouterModel: 'prince-ai-studio-openrouter-model',
+  webSearchEnabled: 'prince-ai-studio-web-search-enabled',
+  reasoningEffort: 'prince-ai-studio-reasoning-effort',
+  systemPrompt: 'prince-ai-studio-system-prompt',
   activeSessionId: ACTIVE_SESSION_STORAGE_KEY,
   sidebarOpen: SIDEBAR_OPEN_STORAGE_KEY,
 };
@@ -699,18 +699,22 @@ export default function Home() {
     let isMounted = true;
 
     const storedOpenRouterApiKey =
-      localStorage.getItem(STORAGE_KEYS.openRouterApiKey) ?? '';
+      localStorage.getItem(STORAGE_KEYS.openRouterApiKey) ??
+      localStorage.getItem('prince-chat-openrouter-api-key') ??
+      '';
     const storedOpenRouterModel =
-      localStorage.getItem(STORAGE_KEYS.openRouterModel) ?? '';
-    const storedWebSearchEnabled = localStorage.getItem(
-      STORAGE_KEYS.webSearchEnabled
-    );
-    const storedReasoningEffort = localStorage.getItem(
-      STORAGE_KEYS.reasoningEffort
-    );
-    const storedSystemPrompt = localStorage.getItem(
-      STORAGE_KEYS.systemPrompt
-    );
+      localStorage.getItem(STORAGE_KEYS.openRouterModel) ??
+      localStorage.getItem('prince-chat-openrouter-model') ??
+      '';
+    const storedWebSearchEnabled =
+      localStorage.getItem(STORAGE_KEYS.webSearchEnabled) ??
+      localStorage.getItem('prince-chat-web-search-enabled');
+    const storedReasoningEffort =
+      localStorage.getItem(STORAGE_KEYS.reasoningEffort) ??
+      localStorage.getItem('prince-chat-reasoning-effort');
+    const storedSystemPrompt =
+      localStorage.getItem(STORAGE_KEYS.systemPrompt) ??
+      localStorage.getItem('prince-chat-system-prompt');
 
     setOpenRouterApiKey(storedOpenRouterApiKey);
     setSelectedOpenRouterModel(storedOpenRouterModel);
@@ -734,7 +738,9 @@ export default function Home() {
 
         setSessions(storedSessions);
 
-        const savedActiveId = localStorage.getItem(STORAGE_KEYS.activeSessionId);
+        const savedActiveId =
+          localStorage.getItem(STORAGE_KEYS.activeSessionId) ??
+          localStorage.getItem('prince-chat-active-session-id');
         const targetSession = storedSessions.find((s) => s.id === savedActiveId);
 
         if (targetSession) {
@@ -776,7 +782,9 @@ export default function Home() {
 
     void initSessions();
 
-    const storedSidebarOpen = localStorage.getItem(STORAGE_KEYS.sidebarOpen);
+    const storedSidebarOpen =
+      localStorage.getItem(STORAGE_KEYS.sidebarOpen) ??
+      localStorage.getItem('prince-chat-sidebar-open');
     if (storedSidebarOpen !== null) {
       setIsSidebarOpen(storedSidebarOpen === 'true');
     }
@@ -2007,7 +2015,7 @@ export default function Home() {
     }
 
     const currentSession = sessions.find((s) => s.id === activeSessionId);
-    const sessionTitle = currentSession?.title || 'Prince Chat Export';
+    const sessionTitle = currentSession?.title || 'Prince AI Studio Export';
 
     const lines: string[] = [
       `# ${sessionTitle}`,
@@ -2055,7 +2063,7 @@ export default function Home() {
     link.href = url;
     const titleSlug = currentSession?.title
       ? currentSession.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32)
-      : 'prince-chat';
+      : 'prince-ai-studio';
     link.download = `${titleSlug}-${new Date().toISOString().slice(0, 10)}.md`;
     document.body.appendChild(link);
     link.click();
@@ -2135,10 +2143,9 @@ export default function Home() {
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-sm font-semibold tracking-tight text-foreground">Prince</span>
-                <span className="hidden text-[10px] text-muted-foreground/80 sm:inline-block">AI Studio</span>
-              </div>
+              <span className="text-sm font-semibold tracking-tight text-foreground">
+                Prince AI Studio
+              </span>
             </div>
           </div>
 

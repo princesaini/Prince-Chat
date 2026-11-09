@@ -24,7 +24,7 @@ async function handler(req: NextRequest) {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': req.headers.get('Content-Type') || 'application/json',
       'HTTP-Referer': req.headers.get('origin') || req.nextUrl.origin,
-      'X-Title': 'Prince Chat',
+      'X-Title': 'Prince AI Studio',
     },
     body: req.method === 'GET' ? undefined : req.body,
     // @ts-expect-error - duplex is a valid option for streaming

@@ -1,6 +1,6 @@
-# Prince Chat
+# Prince AI Studio
 
-Prince Chat is a small, private-feeling chat interface for OpenRouter. Add your own OpenRouter API key, choose a model, and start chatting. It is built with Next.js, React, Tailwind CSS, and shadcn/ui.
+Prince AI Studio is a small, private-feeling chat interface for OpenRouter. Add your own OpenRouter API key, choose a model, and start chatting. It is built with Next.js, React, Tailwind CSS, and shadcn/ui.
 
 It is designed for people who want a simple way to try different OpenRouter models without configuring environment variables or building their own API client first.
 
@@ -87,7 +87,7 @@ Select the **Search** button directly in the message composer toolbar to toggle 
 
 ### Reasoning and thinking stream
 
-When using reasoning models (such as DeepSeek-R1, OpenAI o1/o3, Gemini Flash Thinking, or Qwen QwQ), Prince Chat displays an interactive collapsible **Thinking** accordion above the assistant's final response:
+When using reasoning models (such as DeepSeek-R1, OpenAI o1/o3, Gemini Flash Thinking, or Qwen QwQ), Prince AI Studio displays an interactive collapsible **Thinking** accordion above the assistant's final response:
 - The reasoning thoughts stream live with an elapsed timer indicator.
 - Automatically stays open while reasoning is underway and collapses into a compact toggle once the answer begins streaming.
 - Supports mathematical notation and markdown inside the thought process.
@@ -109,11 +109,11 @@ Select the download icon in the navbar to download your full conversation as a f
 
 ### Generate an image
 
-Choose a model marked `Image`, then enter a description of the image you want. Prince Chat sends the prompt to OpenRouter's image endpoint and displays the generated images in the conversation.
+Choose a model marked `Image`, then enter a description of the image you want. Prince AI Studio sends the prompt to OpenRouter's image endpoint and displays the generated images in the conversation.
 
 ### Manage chat history and sessions
 
-Prince Chat automatically saves your conversations locally in your browser using IndexedDB with local-storage fallback, so your conversations persist across page refreshes and browser restarts.
+Prince AI Studio automatically saves your conversations locally in your browser using IndexedDB with local-storage fallback, so your conversations persist across page refreshes and browser restarts.
 
 - Select the sidebar icon in the top header (or press `Ctrl+B`) to open or close the **Chat history** sidebar.
 - **Persistent Header Actions when Collapsed:** When the sidebar is collapsed, the **New Chat** (`+`) and **Search** (`🔍`) buttons remain visible in the top-left navigation header so you always have instant access to start or search conversations without reopening the sidebar.
@@ -134,7 +134,7 @@ Your prompts and generated responses are sent to OpenRouter and the selected mod
 
 ## Costs
 
-Prince Chat shows the input and output prices returned by OpenRouter in the model picker. These prices are useful for comparing models, but the final amount charged depends on the tokens and features used in a request. Web search, image generation, and reasoning can add cost.
+Prince AI Studio shows the input and output prices returned by OpenRouter in the model picker. These prices are useful for comparing models, but the final amount charged depends on the tokens and features used in a request. Web search, image generation, and reasoning can add cost.
 
 You are responsible for charges on the OpenRouter account connected to your API key.
 

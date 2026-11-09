@@ -5,8 +5,8 @@ import 'highlight.js/styles/github-dark.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'Prince Chat',
-  description: 'Chat with OpenRouter models.',
+  title: 'Prince AI Studio',
+  description: 'Chat with OpenRouter models in a private, powerful AI workspace.',
 };
 
 export default function RootLayout({

@@ -49,9 +49,10 @@ export interface ChatSession {
 const DB_NAME = 'prince_chat_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'sessions';
-const FALLBACK_STORAGE_KEY = 'prince-chat-sessions-fallback';
-export const ACTIVE_SESSION_STORAGE_KEY = 'prince-chat-active-session-id';
-export const SIDEBAR_OPEN_STORAGE_KEY = 'prince-chat-sidebar-open';
+const FALLBACK_STORAGE_KEY = 'prince-ai-studio-sessions-fallback';
+const LEGACY_FALLBACK_STORAGE_KEY = 'prince-chat-sessions-fallback';
+export const ACTIVE_SESSION_STORAGE_KEY = 'prince-ai-studio-active-session-id';
+export const SIDEBAR_OPEN_STORAGE_KEY = 'prince-ai-studio-sidebar-open';
 
 export function generateSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -102,7 +103,9 @@ function openDB(): Promise<IDBDatabase> {
 function getFallbackSessions(): ChatSession[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(FALLBACK_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(FALLBACK_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_FALLBACK_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
