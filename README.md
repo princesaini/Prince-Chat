@@ -7,6 +7,10 @@ It is designed for people who want a simple way to try different OpenRouter mode
 ## What you can do
 
 - Chat with OpenRouter text models and see responses stream in as they are generated.
+- Collapsible Thinking / Reasoning stream display with live timing for reasoning models (DeepSeek, OpenAI o-series, Gemini Thinking, Claude thinking tokens, or `<think>` blocks).
+- Real-time OpenRouter account credits & key monitor with a quick header balance badge and detailed usage breakdown.
+- Syntax-highlighted code blocks with language badges and one-click code copy.
+- LaTeX mathematical notation rendering via KaTeX for inline (`$...$`) and block (`$$...$$`) equations.
 - Attach images or PDF documents when using multimodal vision or file-capable models.
 - Pick a model from a searchable list in the top navbar.
 - See each model's input and output price per one million tokens, plus its context-window size.
@@ -78,6 +82,24 @@ These controls apply to the next message you send and are remembered in the curr
 ### Web search
 
 Select the **Search** button directly in the message composer toolbar to toggle OpenRouter web search on or off for compatible models.
+
+### Reasoning and thinking stream
+
+When using reasoning models (such as DeepSeek-R1, OpenAI o1/o3, Gemini Flash Thinking, or Qwen QwQ), Prince Chat displays an interactive collapsible **Thinking** accordion above the assistant's final response:
+- The reasoning thoughts stream live with an elapsed timer indicator.
+- Automatically stays open while reasoning is underway and collapses into a compact toggle once the answer begins streaming.
+- Supports mathematical notation and markdown inside the thought process.
+
+### Account balance and key monitor
+
+When an API key is connected:
+- A compact credits badge in the header shows your remaining balance in real time.
+- Clicking the badge or the key icon opens the **OpenRouter API Key** dialog displaying your live credits, total usage, key limits, and rate limits, with a quick **Refresh** button.
+
+### Syntax highlighting and LaTeX math
+
+- **Code Highlighting:** Code blocks are formatted with language badges and syntax highlighting via `highlight.js` (GitHub Dark theme) with one-click clipboard copying.
+- **LaTeX Math:** Mathematical equations written in inline `$E = mc^2$` or block `$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$` syntax render beautifully using KaTeX.
 
 ### Export conversation
 

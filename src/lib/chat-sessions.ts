@@ -23,6 +23,8 @@ export type MessageUsage = {
 export type Message = {
   role: 'user' | 'assistant';
   content: string;
+  reasoning?: string;
+  reasoningTimeMs?: number;
   attachments?: Attachment[];
   usage?: MessageUsage;
   images?: {

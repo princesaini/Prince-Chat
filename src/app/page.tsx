@@ -1,11 +1,14 @@
 'use client';
 
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import hljs from 'highlight.js';
 
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
@@ -39,8 +42,10 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
+  Brain,
   Check,
   ChevronDown,
+  Coins,
   Copy,
   Download,
   ExternalLink,
@@ -58,12 +63,18 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  Wallet,
   X,
   PanelLeft,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ChatSidebar } from '@/components/chat-sidebar';
+import { ThinkingAccordion } from '@/components/thinking-accordion';
 import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  fetchOpenRouterKeyInfo,
+  OpenRouterKeyInfo,
+} from '@/lib/openrouter-key';
 import {
   Attachment,
   ChatSession,
@@ -250,7 +261,8 @@ function formatEstimatedCost(cost: number) {
 function parseOpenRouterChunk(
   chunk: string,
   appendAssistantText: (text: string) => void,
-  updateAssistantUsage: (usage: unknown) => void
+  updateAssistantUsage: (usage: unknown) => void,
+  appendAssistantReasoning?: (reasoning: string) => void
 ) {
   const events = chunk.split(/\r?\n\r?\n/);
   const remainingChunk = events.pop() ?? '';
@@ -273,7 +285,14 @@ function parseOpenRouterChunk(
 
       try {
         const parsed = JSON.parse(dataLine);
-        const content = parsed.choices?.[0]?.delta?.content;
+        const delta = parsed.choices?.[0]?.delta;
+        const reasoning = delta?.reasoning || delta?.reasoning_content;
+        const content = delta?.content;
+
+        if (reasoning && appendAssistantReasoning) {
+          appendAssistantReasoning(reasoning);
+        }
+
         if (content) {
           appendAssistantText(content);
         }
@@ -294,6 +313,31 @@ function parseOpenRouterChunk(
   return remainingChunk;
 }
 
+function parseContentAndThinking(message: Message): {
+  displayReasoning: string | null;
+  displayContent: string;
+} {
+  if (message.reasoning) {
+    return {
+      displayReasoning: message.reasoning,
+      displayContent: message.content,
+    };
+  }
+
+  const thinkMatch = message.content.match(/^<think>([\s\S]*?)(?:<\/think>|$)([\s\S]*)$/);
+  if (thinkMatch) {
+    return {
+      displayReasoning: thinkMatch[1].trim(),
+      displayContent: thinkMatch[2].trimStart(),
+    };
+  }
+
+  return {
+    displayReasoning: null,
+    displayContent: message.content,
+  };
+}
+
 function CodeSnippet({
   className,
   children,
@@ -311,8 +355,20 @@ function CodeSnippet({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const highlightedCode = useMemo(() => {
+    if (!textContent) return '';
+    try {
+      if (language && hljs.getLanguage(language)) {
+        return hljs.highlight(textContent, { language, ignoreIllegals: true }).value;
+      }
+      return hljs.highlightAuto(textContent).value;
+    } catch {
+      return '';
+    }
+  }, [textContent, language]);
+
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border/80 bg-zinc-950 text-zinc-100 dark:border-zinc-800">
+    <div className="my-3 overflow-hidden rounded-xl border border-border/80 bg-zinc-950 text-zinc-100 dark:border-zinc-800 shadow-xs">
       <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/90 px-3.5 py-1.5 text-xs text-zinc-400">
         <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
           {language || 'code'}
@@ -336,7 +392,14 @@ function CodeSnippet({
         </button>
       </div>
       <pre className="overflow-x-auto p-3.5 font-mono text-[12.5px] leading-relaxed text-zinc-200">
-        <code>{children}</code>
+        {highlightedCode ? (
+          <code
+            className={cn('hljs', language && `language-${language}`)}
+            dangerouslySetInnerHTML={{ __html: highlightedCode }}
+          />
+        ) : (
+          <code>{children}</code>
+        )}
       </pre>
     </div>
   );
@@ -350,6 +413,9 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
+  const [openRouterKeyInfo, setOpenRouterKeyInfo] = useState<OpenRouterKeyInfo | null>(null);
+  const [isLoadingKeyInfo, setIsLoadingKeyInfo] = useState(false);
+  const reasoningStartRef = useRef<number | null>(null);
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>('');
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
@@ -481,7 +547,33 @@ export default function Home() {
     );
   });
 
+  const appendAssistantReasoning = (reasoningChunk: string) => {
+    if (!reasoningStartRef.current) {
+      reasoningStartRef.current = Date.now();
+    }
+
+    setMessages((prev) => {
+      const updatedMessages = [...prev];
+      const lastMessage = updatedMessages[updatedMessages.length - 1];
+
+      if (lastMessage && lastMessage.role === 'assistant') {
+        updatedMessages[updatedMessages.length - 1] = {
+          ...lastMessage,
+          reasoning: (lastMessage.reasoning || '') + reasoningChunk,
+        };
+      }
+
+      return updatedMessages;
+    });
+  };
+
   const appendAssistantText = (text: string) => {
+    let finalizedReasoningTime: number | undefined;
+    if (reasoningStartRef.current) {
+      finalizedReasoningTime = Date.now() - reasoningStartRef.current;
+      reasoningStartRef.current = null;
+    }
+
     setMessages((prev) => {
       const updatedMessages = [...prev];
       const lastMessage = updatedMessages[updatedMessages.length - 1];
@@ -490,11 +582,28 @@ export default function Home() {
         updatedMessages[updatedMessages.length - 1] = {
           ...lastMessage,
           content: lastMessage.content + text,
+          reasoningTimeMs: lastMessage.reasoningTimeMs ?? finalizedReasoningTime,
         };
       }
 
       return updatedMessages;
     });
+  };
+
+  const loadKeyInfo = async (key: string) => {
+    if (!key.trim()) {
+      setOpenRouterKeyInfo(null);
+      return;
+    }
+    setIsLoadingKeyInfo(true);
+    try {
+      const info = await fetchOpenRouterKeyInfo(key);
+      setOpenRouterKeyInfo(info);
+    } catch (err) {
+      console.warn('Could not load OpenRouter key info', err);
+    } finally {
+      setIsLoadingKeyInfo(false);
+    }
   };
 
   const updateAssistantUsage = (
@@ -613,6 +722,7 @@ export default function Home() {
 
     if (storedOpenRouterApiKey) {
       void fetchOpenRouterModels(storedOpenRouterApiKey);
+      void loadKeyInfo(storedOpenRouterApiKey);
     }
 
     const initSessions = async () => {
@@ -1069,8 +1179,10 @@ export default function Home() {
 
     if (sanitizedApiKey) {
       await fetchOpenRouterModels(sanitizedApiKey);
+      void loadKeyInfo(sanitizedApiKey);
     } else {
       setOpenRouterModels([]);
+      setOpenRouterKeyInfo(null);
     }
 
     toast({
@@ -1229,7 +1341,8 @@ export default function Home() {
           bufferedChunk = parseOpenRouterChunk(
             bufferedChunk + decoder.decode(value, { stream: true }),
             appendAssistantText,
-            (usage) => updateAssistantUsage(usage, requestPricing)
+            (usage) => updateAssistantUsage(usage, requestPricing),
+            appendAssistantReasoning
           );
         }
 
@@ -1238,8 +1351,25 @@ export default function Home() {
           parseOpenRouterChunk(
             `${finalChunk}\n\n`,
             appendAssistantText,
-            (usage) => updateAssistantUsage(usage, requestPricing)
+            (usage) => updateAssistantUsage(usage, requestPricing),
+            appendAssistantReasoning
           );
+        }
+
+        if (reasoningStartRef.current) {
+          const duration = Date.now() - reasoningStartRef.current;
+          reasoningStartRef.current = null;
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last && last.role === 'assistant') {
+              updated[updated.length - 1] = {
+                ...last,
+                reasoningTimeMs: last.reasoningTimeMs ?? duration,
+              };
+            }
+            return updated;
+          });
         }
 
         setMessages((latest) => {
@@ -1266,6 +1396,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      if (reasoningStartRef.current) {
+        reasoningStartRef.current = null;
+      }
+      void loadKeyInfo(openRouterApiKey);
     }
   };
 
@@ -1367,7 +1501,8 @@ export default function Home() {
         bufferedChunk = parseOpenRouterChunk(
           bufferedChunk + decoder.decode(value, { stream: true }),
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing)
+          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing),
+          appendAssistantReasoning
         );
       }
 
@@ -1376,8 +1511,25 @@ export default function Home() {
         parseOpenRouterChunk(
           `${finalChunk}\n\n`,
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing)
+          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing),
+          appendAssistantReasoning
         );
+      }
+
+      if (reasoningStartRef.current) {
+        const duration = Date.now() - reasoningStartRef.current;
+        reasoningStartRef.current = null;
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              reasoningTimeMs: last.reasoningTimeMs ?? duration,
+            };
+          }
+          return updated;
+        });
       }
 
       setMessages((latest) => {
@@ -1401,6 +1553,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      if (reasoningStartRef.current) {
+        reasoningStartRef.current = null;
+      }
+      void loadKeyInfo(openRouterApiKey);
     }
   };
 
@@ -1481,7 +1637,8 @@ export default function Home() {
         bufferedChunk = parseOpenRouterChunk(
           bufferedChunk + decoder.decode(value, { stream: true }),
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing)
+          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing),
+          appendAssistantReasoning
         );
       }
 
@@ -1490,8 +1647,25 @@ export default function Home() {
         parseOpenRouterChunk(
           `${finalChunk}\n\n`,
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing)
+          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing),
+          appendAssistantReasoning
         );
+      }
+
+      if (reasoningStartRef.current) {
+        const duration = Date.now() - reasoningStartRef.current;
+        reasoningStartRef.current = null;
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              reasoningTimeMs: last.reasoningTimeMs ?? duration,
+            };
+          }
+          return updated;
+        });
       }
 
       setMessages((latest) => {
@@ -1515,6 +1689,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      if (reasoningStartRef.current) {
+        reasoningStartRef.current = null;
+      }
+      void loadKeyInfo(openRouterApiKey);
     }
   };
 
@@ -1624,7 +1802,8 @@ export default function Home() {
         bufferedChunk = parseOpenRouterChunk(
           bufferedChunk + decoder.decode(value, { stream: true }),
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing)
+          (usage) => updateAssistantUsage(usage, requestPricing),
+          appendAssistantReasoning
         );
       }
 
@@ -1633,8 +1812,25 @@ export default function Home() {
         parseOpenRouterChunk(
           `${finalChunk}\n\n`,
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing)
+          (usage) => updateAssistantUsage(usage, requestPricing),
+          appendAssistantReasoning
         );
+      }
+
+      if (reasoningStartRef.current) {
+        const duration = Date.now() - reasoningStartRef.current;
+        reasoningStartRef.current = null;
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              reasoningTimeMs: last.reasoningTimeMs ?? duration,
+            };
+          }
+          return updated;
+        });
       }
 
       setMessages((latest) => {
@@ -1658,6 +1854,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      if (reasoningStartRef.current) {
+        reasoningStartRef.current = null;
+      }
+      void loadKeyInfo(openRouterApiKey);
     }
   };
 
@@ -1729,7 +1929,8 @@ export default function Home() {
         bufferedChunk = parseOpenRouterChunk(
           bufferedChunk + decoder.decode(value, { stream: true }),
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing)
+          (usage) => updateAssistantUsage(usage, requestPricing),
+          appendAssistantReasoning
         );
       }
 
@@ -1738,8 +1939,25 @@ export default function Home() {
         parseOpenRouterChunk(
           `${finalChunk}\n\n`,
           appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing)
+          (usage) => updateAssistantUsage(usage, requestPricing),
+          appendAssistantReasoning
         );
+      }
+
+      if (reasoningStartRef.current) {
+        const duration = Date.now() - reasoningStartRef.current;
+        reasoningStartRef.current = null;
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              reasoningTimeMs: last.reasoningTimeMs ?? duration,
+            };
+          }
+          return updated;
+        });
       }
 
       setMessages((latest) => {
@@ -1763,6 +1981,10 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      if (reasoningStartRef.current) {
+        reasoningStartRef.current = null;
+      }
+      void loadKeyInfo(openRouterApiKey);
     }
   };
 
@@ -1796,7 +2018,16 @@ export default function Home() {
         const modelLabel = message.modelId
           ? openRouterModels.find((m) => m.id === message.modelId)?.name || message.modelId
           : 'Assistant';
-        lines.push(`## 🤖 ${modelLabel}`, '', message.content, '');
+        lines.push(`## 🤖 ${modelLabel}`, '');
+        const { displayReasoning, displayContent } = parseContentAndThinking(message);
+        if (displayReasoning) {
+          lines.push(
+            '> **Thinking Process:**',
+            ...displayReasoning.split('\n').map((l) => `> ${l}`),
+            ''
+          );
+        }
+        lines.push(displayContent, '');
         if (message.usage) {
           lines.push(
             `> *${message.usage.inputTokens.toLocaleString()} in · ${message.usage.outputTokens.toLocaleString()} out${
@@ -2128,6 +2359,31 @@ export default function Home() {
             <Download className="h-3.5 w-3.5" />
           </Button>
 
+          {/* Account Balance / Credits Pill */}
+          {openRouterApiKey.trim() ? (
+            <button
+              type="button"
+              onClick={() => setIsOpenRouterDialogOpen(true)}
+              title="OpenRouter account credits & key details"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground"
+            >
+              <Wallet className="h-3.5 w-3.5 text-emerald-500" />
+              {isLoadingKeyInfo && !openRouterKeyInfo ? (
+                <span className="text-[11px] font-mono">...</span>
+              ) : openRouterKeyInfo?.remaining_credits !== undefined && openRouterKeyInfo.remaining_credits !== null ? (
+                <span className="font-mono text-[11px] font-medium text-foreground">
+                  ${Math.max(0, openRouterKeyInfo.remaining_credits).toFixed(2)}
+                </span>
+              ) : openRouterKeyInfo?.usage !== undefined ? (
+                <span className="font-mono text-[11px] font-medium text-foreground">
+                  ${openRouterKeyInfo.usage.toFixed(2)} used
+                </span>
+              ) : (
+                <span className="text-[11px]">Credits</span>
+              )}
+            </button>
+          ) : null}
+
           {/* API Key */}
           <Button
             variant="ghost"
@@ -2342,95 +2598,124 @@ export default function Home() {
                       </div>
                     ) : null}
 
-                    {/* Markdown Body */}
-                    <div className="prose prose-zinc dark:prose-invert max-w-none text-[13.5px] leading-relaxed break-words">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          p: ({ node, ...props }) => (
-                            <p className="mb-2 last:mb-0 leading-relaxed text-foreground" {...props} />
-                          ),
-                          ol: ({ node, ...props }) => (
-                            <ol className="my-2 ml-4 list-decimal space-y-1 text-foreground" {...props} />
-                          ),
-                          ul: ({ node, ...props }) => (
-                            <ul className="my-2 ml-4 list-disc space-y-1 text-foreground" {...props} />
-                          ),
-                          li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-                          code: ({ node, className, children, ...props }) =>
-                            className ? (
-                              <CodeSnippet className={className}>
-                                {children}
-                              </CodeSnippet>
-                            ) : (
-                              <code
-                                className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[12px] text-foreground"
-                                {...props}
-                              >
-                                {children}
-                              </code>
-                            ),
-                        }}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
+                    {/* Assistant Content & Reasoning */}
+                    {(() => {
+                      const { displayReasoning, displayContent } = parseContentAndThinking(message);
+                      const isCurrentlyStreaming = isLoading && index === messages.length - 1;
+                      const hasReasoning = Boolean(displayReasoning || (isCurrentlyStreaming && message.reasoning));
+                      const isThinkingStreaming = isCurrentlyStreaming && !displayContent && hasReasoning;
 
-                    {/* Assistant Footer: Token Usage & Actions */}
-                    {message.content && (index < messages.length - 1 || !isLoading) ? (
-                      <div className="mt-1.5 flex items-center justify-between gap-3 pt-1">
-                        {message.usage ? (
-                          <span
-                            className="text-[10px] text-muted-foreground/75 font-mono"
-                            title={`In: ${message.usage.inputTokens.toLocaleString()} · Out: ${message.usage.outputTokens.toLocaleString()}${message.usage.estimatedCost !== null ? ` · Cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
-                          >
-                            {formatTokenCount(message.usage.inputTokens)} in ·{' '}
-                            {formatTokenCount(message.usage.outputTokens)} out
-                            {message.usage.estimatedCost !== null
-                              ? ` · ≈ ${formatEstimatedCost(message.usage.estimatedCost)}`
-                              : ''}
-                          </span>
-                        ) : (
-                          <span />
-                        )}
-
-                        <div className="flex items-center gap-1 opacity-70 transition-opacity hover:opacity-100">
-                          {!message.images ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => void handleRegenerate(index)}
-                                disabled={isLoading}
-                                aria-label="Regenerate response"
-                                title="Regenerate"
-                                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                              >
-                                <RefreshCw className="h-3 w-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenRetryPicker(index)}
-                                disabled={isLoading}
-                                aria-label="Retry with another model"
-                                title="Try another model"
-                                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                              >
-                                <RotateCcw className="h-3 w-3" />
-                              </button>
-                            </>
+                      return (
+                        <>
+                          {/* Collapsible Thinking / Reasoning Accordion */}
+                          {hasReasoning ? (
+                            <ThinkingAccordion
+                              thinking={displayReasoning}
+                              isStreaming={isThinkingStreaming}
+                              durationMs={message.reasoningTimeMs}
+                            />
                           ) : null}
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(message.content)}
-                            aria-label="Copy response"
-                            title="Copy response"
-                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+
+                          {/* Markdown Body with Math (KaTeX) and Code Syntax Highlighting */}
+                          {displayContent ? (
+                            <div className="prose prose-zinc dark:prose-invert max-w-none text-[13.5px] leading-relaxed break-words">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+                                components={{
+                                  p: ({ node, ...props }) => (
+                                    <p className="mb-2 last:mb-0 leading-relaxed text-foreground" {...props} />
+                                  ),
+                                  ol: ({ node, ...props }) => (
+                                    <ol className="my-2 ml-4 list-decimal space-y-1 text-foreground" {...props} />
+                                  ),
+                                  ul: ({ node, ...props }) => (
+                                    <ul className="my-2 ml-4 list-disc space-y-1 text-foreground" {...props} />
+                                  ),
+                                  li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                                  code: ({ node, className, children, ...props }) =>
+                                    className ? (
+                                      <CodeSnippet className={className}>
+                                        {children}
+                                      </CodeSnippet>
+                                    ) : (
+                                      <code
+                                        className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[12px] text-foreground"
+                                        {...props}
+                                      >
+                                        {children}
+                                      </code>
+                                    ),
+                                }}
+                              >
+                                {displayContent}
+                              </ReactMarkdown>
+                            </div>
+                          ) : isCurrentlyStreaming && !hasReasoning ? (
+                            <div className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
+                              <span className="h-1.5 w-1.5 rounded-full bg-foreground animate-ping" />
+                              <span>Generating...</span>
+                            </div>
+                          ) : null}
+
+                          {/* Assistant Footer: Token Usage & Actions */}
+                          {(displayContent || displayReasoning) && (index < messages.length - 1 || !isLoading) ? (
+                            <div className="mt-1.5 flex items-center justify-between gap-3 pt-1">
+                              {message.usage ? (
+                                <span
+                                  className="text-[10px] text-muted-foreground/75 font-mono"
+                                  title={`In: ${message.usage.inputTokens.toLocaleString()} · Out: ${message.usage.outputTokens.toLocaleString()}${message.usage.estimatedCost !== null ? ` · Cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
+                                >
+                                  {formatTokenCount(message.usage.inputTokens)} in ·{' '}
+                                  {formatTokenCount(message.usage.outputTokens)} out
+                                  {message.usage.estimatedCost !== null
+                                    ? ` · ≈ ${formatEstimatedCost(message.usage.estimatedCost)}`
+                                    : ''}
+                                </span>
+                              ) : (
+                                <span />
+                              )}
+
+                              <div className="flex items-center gap-1 opacity-70 transition-opacity hover:opacity-100">
+                                {!message.images ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRegenerate(index)}
+                                      disabled={isLoading}
+                                      aria-label="Regenerate response"
+                                      title="Regenerate"
+                                      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                                    >
+                                      <RefreshCw className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenRetryPicker(index)}
+                                      disabled={isLoading}
+                                      aria-label="Retry with another model"
+                                      title="Try another model"
+                                      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                                    >
+                                      <RotateCcw className="h-3 w-3" />
+                                    </button>
+                                  </>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(displayContent || message.content)}
+                                  aria-label="Copy response"
+                                  title="Copy response"
+                                  className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -2661,7 +2946,7 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-2">
+          <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="openrouter-api-key" className="text-xs font-medium">
@@ -2686,6 +2971,81 @@ export default function Home() {
                 className="h-9 rounded-xl border-border/80 bg-muted/40 font-mono text-xs"
               />
             </div>
+
+            {/* Live Account & Key Health Card */}
+            {openRouterApiKey.trim() ? (
+              <div className="space-y-2.5 rounded-xl border border-border/70 bg-muted/30 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <Wallet className="h-3.5 w-3.5 text-emerald-500" />
+                    Account & Usage Monitor
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadKeyInfo(openRouterApiKey)}
+                    disabled={isLoadingKeyInfo}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                    title="Refresh balance and key info"
+                  >
+                    <RefreshCw className={cn('h-3 w-3', isLoadingKeyInfo && 'animate-spin')} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {isLoadingKeyInfo && !openRouterKeyInfo ? (
+                  <div className="py-2 text-center text-[11px] text-muted-foreground">
+                    Fetching OpenRouter account balance...
+                  </div>
+                ) : openRouterKeyInfo ? (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="rounded-lg border border-border/50 bg-background/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">Remaining Credits</p>
+                      <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                        {openRouterKeyInfo.remaining_credits !== null && openRouterKeyInfo.remaining_credits !== undefined
+                          ? `$${Math.max(0, openRouterKeyInfo.remaining_credits).toFixed(4)}`
+                          : openRouterKeyInfo.is_free_tier
+                            ? 'Free Tier'
+                            : 'Unlimited'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-border/50 bg-background/60 p-2">
+                      <p className="text-[10px] text-muted-foreground">Key Usage</p>
+                      <p className="mt-0.5 font-mono text-sm font-semibold text-foreground">
+                        ${(openRouterKeyInfo.usage ?? 0).toFixed(4)}
+                        {openRouterKeyInfo.limit ? (
+                          <span className="text-[10px] font-normal text-muted-foreground">
+                            {' '}/ ${openRouterKeyInfo.limit.toFixed(2)}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+
+                    {openRouterKeyInfo.label ? (
+                      <div className="col-span-2 flex items-center justify-between border-t border-border/40 px-0.5 pt-1.5 text-[11px] text-muted-foreground">
+                        <span>Key label:</span>
+                        <span className="max-w-[200px] truncate font-mono font-medium text-foreground">
+                          {openRouterKeyInfo.label}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {openRouterKeyInfo.rate_limit?.requests ? (
+                      <div className="col-span-2 flex items-center justify-between px-0.5 text-[11px] text-muted-foreground">
+                        <span>Rate limit:</span>
+                        <span className="font-mono text-foreground">
+                          {openRouterKeyInfo.rate_limit.requests} req / {openRouterKeyInfo.rate_limit.interval || 'sec'}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Unable to fetch account credits. Check that your API key is valid.
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter>
