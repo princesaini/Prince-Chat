@@ -51,7 +51,7 @@ You need Node.js and an OpenRouter API key.
 
 3. Open [http://localhost:9002](http://localhost:9002).
 
-4. Select the key icon in the top-right corner, paste your OpenRouter API key, and save it.
+4. Select the API key / credits badge in the top-right corner, paste your OpenRouter API key, and save it.
 
 5. Select the model button in the navbar, choose a model, then send your first message.
 
@@ -102,7 +102,7 @@ When using reasoning models (such as DeepSeek-R1, OpenAI o1/o3, Gemini Flash Thi
 
 When an API key is connected:
 - A compact credits badge in the header shows your remaining balance in real time.
-- Clicking the badge or the key icon opens the **OpenRouter API Key** dialog displaying your live credits, total usage, key limits, and rate limits, with a quick **Refresh** button.
+- Clicking the credits badge in the header opens the **OpenRouter API Key** dialog displaying your live credits, total usage, key limits, and rate limits, with a quick **Refresh** button.
 
 ### Syntax highlighting and LaTeX math
 

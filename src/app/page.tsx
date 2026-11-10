@@ -2445,44 +2445,39 @@ export default function Home() {
           </Button>
 
           {/* Account Balance / Credits Pill */}
-          {openRouterApiKey.trim() ? (
-            <button
-              type="button"
-              onClick={() => setIsOpenRouterDialogOpen(true)}
-              title="OpenRouter account credits & key details"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground"
-            >
-              <Wallet className="h-3.5 w-3.5 text-emerald-500" />
-              {isLoadingKeyInfo && !openRouterKeyInfo ? (
-                <span className="text-[11px] font-mono">...</span>
-              ) : openRouterKeyInfo?.remaining_credits !== undefined && openRouterKeyInfo.remaining_credits !== null ? (
-                <span className="font-mono text-[11px] font-medium text-foreground">
-                  ${Math.max(0, openRouterKeyInfo.remaining_credits).toFixed(2)}
-                </span>
-              ) : openRouterKeyInfo?.usage !== undefined ? (
-                <span className="font-mono text-[11px] font-medium text-foreground">
-                  ${openRouterKeyInfo.usage.toFixed(2)} used
-                </span>
-              ) : (
-                <span className="text-[11px]">Credits</span>
-              )}
-            </button>
-          ) : null}
-
-          {/* API Key */}
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
+            type="button"
             onClick={() => setIsOpenRouterDialogOpen(true)}
-            aria-label="OpenRouter API key"
-            title="OpenRouter API key"
-            className="relative h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+            title={
+              openRouterApiKey.trim()
+                ? 'OpenRouter account credits & key details'
+                : 'Enter OpenRouter API key'
+            }
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground"
           >
-            <KeyRound className="h-3.5 w-3.5" />
+            <Wallet
+              className={cn(
+                'h-3.5 w-3.5',
+                openRouterApiKey.trim() ? 'text-emerald-500' : 'text-amber-500'
+              )}
+            />
             {!openRouterApiKey.trim() ? (
-              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-            ) : null}
-          </Button>
+              <span className="text-[11px] font-medium text-foreground">API Key</span>
+            ) : isLoadingKeyInfo && !openRouterKeyInfo ? (
+              <span className="text-[11px] font-mono">...</span>
+            ) : openRouterKeyInfo?.remaining_credits !== undefined &&
+              openRouterKeyInfo.remaining_credits !== null ? (
+              <span className="font-mono text-[11px] font-medium text-foreground">
+                ${Math.max(0, openRouterKeyInfo.remaining_credits).toFixed(2)}
+              </span>
+            ) : openRouterKeyInfo?.usage !== undefined ? (
+              <span className="font-mono text-[11px] font-medium text-foreground">
+                ${openRouterKeyInfo.usage.toFixed(2)} used
+              </span>
+            ) : (
+              <span className="text-[11px]">Credits</span>
+            )}
+          </button>
 
           {/* Theme Toggle */}
           <ThemeToggle />
