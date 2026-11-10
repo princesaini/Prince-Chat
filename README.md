@@ -22,7 +22,7 @@ It is designed for people who want a simple way to try different OpenRouter mode
 - Set custom system instructions or persona from the response controls.
 - Generate images when you choose a model that supports image output.
 - Turn OpenRouter web search on or off with the quick search toggle in the composer.
-- Set a reasoning effort level when the selected model supports it.
+- Set a reasoning effort level directly beside the send button when the selected model supports it.
 - Stop a response while it is generating.
 - Copy message contents or code blocks with one click.
 - Export your full conversation to a Markdown (`.md`) file.
@@ -76,10 +76,16 @@ Use the refresh button in the picker after changing your API key or when you wan
 
 Select the sliders icon in the navbar to open **Response controls**.
 
-- **Reasoning effort** controls how much extra thinking a compatible reasoning model uses. Higher settings may improve difficult answers, but can take longer and cost more. The menu only enables choices that the selected model reports as supported.
 - **System instructions** lets you specify custom instructions or personas that guide how the model responds across all messages.
 
 These controls apply to the next message you send and are remembered in the current browser.
+
+### Reasoning effort
+
+For reasoning-capable models, the **Reasoning Effort** selector appears directly on the left side of the "Send prompt" button in the composer toolbar:
+- Only choices that the selected model supports are presented in the menu.
+- The model's default effort level is preselected automatically.
+- Easily adjust thinking depth (e.g. Minimal, Low, Medium, High, Extra High, Max, or None) before sending prompts.
 
 ### Web search
 

@@ -110,9 +110,11 @@ type OpenRouterModel = {
     input_modalities?: string[];
     output_modalities?: string[];
   };
+  supported_parameters?: string[];
 };
 
 const REASONING_EFFORTS: ReasoningEffort[] = [
+  'none',
   'minimal',
   'low',
   'medium',
@@ -120,6 +122,71 @@ const REASONING_EFFORTS: ReasoningEffort[] = [
   'xhigh',
   'max',
 ];
+
+const formatEffortLabel = (effort?: string | null): string => {
+  switch (effort) {
+    case 'none':
+      return 'None';
+    case 'minimal':
+      return 'Minimal';
+    case 'low':
+      return 'Low';
+    case 'medium':
+      return 'Medium';
+    case 'high':
+      return 'High';
+    case 'xhigh':
+      return 'Extra High';
+    case 'max':
+      return 'Max';
+    default:
+      return effort ? effort[0].toUpperCase() + effort.slice(1) : '';
+  }
+};
+
+const getModelReasoningEffortOptions = (
+  model?: OpenRouterModel
+): ReasoningEffort[] => {
+  if (!model) return [];
+  const supported = model.reasoning?.supported_efforts;
+  if (Array.isArray(supported) && supported.length > 0) {
+    const valid = supported.filter((e): e is ReasoningEffort =>
+      REASONING_EFFORTS.includes(e as ReasoningEffort)
+    );
+    return valid.sort(
+      (a, b) => REASONING_EFFORTS.indexOf(a) - REASONING_EFFORTS.indexOf(b)
+    );
+  }
+  const hasReasoning = Boolean(
+    model.reasoning ||
+      model.supported_parameters?.includes('reasoning_effort') ||
+      model.supported_parameters?.includes('reasoning')
+  );
+  if (hasReasoning) {
+    return ['low', 'medium', 'high'];
+  }
+  return [];
+};
+
+const getModelDefaultReasoningEffort = (
+  model?: OpenRouterModel,
+  options?: ReasoningEffort[]
+): ReasoningEffort | '' => {
+  if (!model) return '';
+  const availableOptions = options ?? getModelReasoningEffortOptions(model);
+  if (availableOptions.length === 0) return '';
+
+  if (
+    model.reasoning?.default_effort &&
+    availableOptions.includes(model.reasoning.default_effort as ReasoningEffort)
+  ) {
+    return model.reasoning.default_effort as ReasoningEffort;
+  }
+  if (availableOptions.includes('medium')) {
+    return 'medium';
+  }
+  return availableOptions[0] || '';
+};
 
 const formSchema = z.object({
   message: z.string(),
@@ -475,20 +542,18 @@ export default function Home() {
     .filter(Boolean)
     .join(',');
   const selectedModelReasoning = selectedModelMetadata?.reasoning;
-  const selectedModelSupportsReasoningEffort =
-    !selectedModelMetadata ||
-    (Boolean(selectedModelReasoning) &&
-      (selectedModelReasoning?.supported_efforts === null ||
-        Boolean(selectedModelReasoning?.supported_efforts?.length)));
-  const reasoningEffortOptions =
-    selectedModelReasoning?.supported_efforts?.length
-      ? selectedModelReasoning.supported_efforts
-      : REASONING_EFFORTS;
+  const reasoningEffortOptions = getModelReasoningEffortOptions(selectedModelMetadata);
+  const modelDefaultEffort = getModelDefaultReasoningEffort(
+    selectedModelMetadata,
+    reasoningEffortOptions
+  );
+  const selectedModelSupportsReasoningEffort = reasoningEffortOptions.length > 0;
+  const effectiveReasoningEffort =
+    reasoningEffort && reasoningEffortOptions.includes(reasoningEffort)
+      ? reasoningEffort
+      : modelDefaultEffort;
   const selectedReasoningEffortIsAvailable =
-    !reasoningEffort ||
-    selectedModelReasoning?.supported_efforts === null ||
-    !selectedModelReasoning?.supported_efforts?.length ||
-    selectedModelReasoning.supported_efforts.includes(reasoningEffort);
+    !effectiveReasoningEffort || reasoningEffortOptions.includes(effectiveReasoningEffort);
 
   const filteredOpenRouterModels = openRouterModels.filter((model) => {
     const inputModalities = model.architecture?.input_modalities ?? [];
@@ -659,22 +724,34 @@ export default function Home() {
       setOpenRouterModels(fetchedModels);
 
       setSelectedOpenRouterModel((currentModel) => {
+        let chosen = currentModel;
         if (
           currentModel &&
           fetchedModels.some((model: OpenRouterModel) => model.id === currentModel)
         ) {
-          return currentModel;
+          chosen = currentModel;
+        } else {
+          const storedModel = localStorage.getItem(STORAGE_KEYS.openRouterModel);
+          if (
+            storedModel &&
+            fetchedModels.some((model: OpenRouterModel) => model.id === storedModel)
+          ) {
+            chosen = storedModel;
+          } else {
+            chosen = currentModel || storedModel || '';
+          }
         }
 
-        const storedModel = localStorage.getItem(STORAGE_KEYS.openRouterModel);
-        if (
-          storedModel &&
-          fetchedModels.some((model: OpenRouterModel) => model.id === storedModel)
-        ) {
-          return storedModel;
+        const modelMeta = fetchedModels.find((model: OpenRouterModel) => model.id === chosen);
+        if (modelMeta) {
+          const opts = getModelReasoningEffortOptions(modelMeta);
+          const def = getModelDefaultReasoningEffort(modelMeta, opts);
+          setReasoningEffort((currentEffort) =>
+            currentEffort && opts.includes(currentEffort) ? currentEffort : def
+          );
         }
 
-        return currentModel || storedModel || '';
+        return chosen;
       });
     } catch (error) {
       console.error(error);
@@ -1322,10 +1399,10 @@ export default function Home() {
             ...(webSearchEnabled
               ? { tools: [{ type: 'openrouter:web_search' }] }
               : {}),
-            ...(reasoningEffort &&
+            ...(effectiveReasoningEffort &&
             selectedModelSupportsReasoningEffort &&
             selectedReasoningEffortIsAvailable
-              ? { reasoning: { effort: reasoningEffort } }
+              ? { reasoning: { effort: effectiveReasoningEffort } }
               : {}),
           }),
           signal: controller.signal,
@@ -1449,16 +1526,16 @@ export default function Home() {
 
     const retryMessages = messages.slice(0, retryTargetIndex);
     const retryModelMetadata = openRouterModels.find((model) => model.id === modelId);
-    const retryModelReasoning = retryModelMetadata?.reasoning;
-    const retryModelSupportsReasoningEffort =
-      Boolean(retryModelReasoning) &&
-      (retryModelReasoning?.supported_efforts === null ||
-        Boolean(retryModelReasoning?.supported_efforts?.length));
-    const retryReasoningEffortIsAvailable =
-      !reasoningEffort ||
-      retryModelReasoning?.supported_efforts === null ||
-      !retryModelReasoning?.supported_efforts?.length ||
-      retryModelReasoning.supported_efforts.includes(reasoningEffort);
+    const retryEffortOptions = getModelReasoningEffortOptions(retryModelMetadata);
+    const retryModelDefault = getModelDefaultReasoningEffort(
+      retryModelMetadata,
+      retryEffortOptions
+    );
+    const retryModelSupportsReasoningEffort = retryEffortOptions.length > 0;
+    const retryReasoningEffort =
+      effectiveReasoningEffort && retryEffortOptions.includes(effectiveReasoningEffort)
+        ? effectiveReasoningEffort
+        : retryModelDefault;
 
     setIsRetryModelPickerOpen(false);
     setRetryTargetIndex(null);
@@ -1486,10 +1563,8 @@ export default function Home() {
           ...(webSearchEnabled
             ? { tools: [{ type: 'openrouter:web_search' }] }
             : {}),
-          ...(reasoningEffort &&
-          retryModelSupportsReasoningEffort &&
-          retryReasoningEffortIsAvailable
-            ? { reasoning: { effort: reasoningEffort } }
+          ...(retryReasoningEffort && retryModelSupportsReasoningEffort
+            ? { reasoning: { effort: retryReasoningEffort } }
             : {}),
         }),
         signal: controller.signal,
@@ -1594,16 +1669,17 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     const regenerateModelMetadata = openRouterModels.find((m) => m.id === modelId);
-    const regenerateReasoning = regenerateModelMetadata?.reasoning;
-    const regenerateSupportsReasoningEffort =
-      Boolean(regenerateReasoning) &&
-      (regenerateReasoning?.supported_efforts === null ||
-        Boolean(regenerateReasoning?.supported_efforts?.length));
-    const regenerateReasoningEffortIsAvailable =
-      !reasoningEffort ||
-      regenerateReasoning?.supported_efforts === null ||
-      !regenerateReasoning?.supported_efforts?.length ||
-      regenerateReasoning.supported_efforts.includes(reasoningEffort);
+    const regenerateEffortOptions = getModelReasoningEffortOptions(regenerateModelMetadata);
+    const regenerateModelDefault = getModelDefaultReasoningEffort(
+      regenerateModelMetadata,
+      regenerateEffortOptions
+    );
+    const regenerateSupportsReasoningEffort = regenerateEffortOptions.length > 0;
+    const regenerateReasoningEffort =
+      effectiveReasoningEffort &&
+      regenerateEffortOptions.includes(effectiveReasoningEffort)
+        ? effectiveReasoningEffort
+        : regenerateModelDefault;
 
     try {
       const response = await fetch('/api/openrouter/api/v1/chat/completions', {
@@ -1624,10 +1700,8 @@ export default function Home() {
           ...(webSearchEnabled
             ? { tools: [{ type: 'openrouter:web_search' }] }
             : {}),
-          ...(reasoningEffort &&
-          regenerateSupportsReasoningEffort &&
-          regenerateReasoningEffortIsAvailable
-            ? { reasoning: { effort: reasoningEffort } }
+          ...(regenerateReasoningEffort && regenerateSupportsReasoningEffort
+            ? { reasoning: { effort: regenerateReasoningEffort } }
             : {}),
         }),
         signal: controller.signal,
@@ -1789,10 +1863,10 @@ export default function Home() {
           ...(webSearchEnabled
             ? { tools: [{ type: 'openrouter:web_search' }] }
             : {}),
-          ...(reasoningEffort &&
+          ...(effectiveReasoningEffort &&
           selectedModelSupportsReasoningEffort &&
           selectedReasoningEffortIsAvailable
-            ? { reasoning: { effort: reasoningEffort } }
+            ? { reasoning: { effort: effectiveReasoningEffort } }
             : {}),
         }),
         signal: controller.signal,
@@ -1916,10 +1990,10 @@ export default function Home() {
           ...(webSearchEnabled
             ? { tools: [{ type: 'openrouter:web_search' }] }
             : {}),
-          ...(reasoningEffort &&
+          ...(effectiveReasoningEffort &&
           selectedModelSupportsReasoningEffort &&
           selectedReasoningEffortIsAvailable
-            ? { reasoning: { effort: reasoningEffort } }
+            ? { reasoning: { effort: effectiveReasoningEffort } }
             : {}),
         }),
         signal: controller.signal,
@@ -2236,6 +2310,9 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           setSelectedOpenRouterModel(model.id);
+                          const nextOptions = getModelReasoningEffortOptions(model);
+                          const nextDefault = getModelDefaultReasoningEffort(model, nextOptions);
+                          setReasoningEffort(nextDefault);
                           setIsModelPickerOpen(false);
                         }}
                         className={cn(
@@ -2312,7 +2389,7 @@ export default function Home() {
                 className="relative h-8 w-8 rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                {reasoningEffort || systemPrompt.trim() ? (
+                {systemPrompt.trim() ? (
                   <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-foreground" />
                 ) : null}
               </Button>
@@ -2328,42 +2405,6 @@ export default function Home() {
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="popover-reasoning-effort" className="text-xs font-medium">
-                      Reasoning effort
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      {selectedModelSupportsReasoningEffort
-                        ? 'Thinking depth for reasoning models'
-                        : 'Not supported by current model'}
-                    </p>
-                  </div>
-                  <Select
-                    value={
-                      reasoningEffort && selectedReasoningEffortIsAvailable
-                        ? reasoningEffort
-                        : 'default'
-                    }
-                    onValueChange={(value) =>
-                      setReasoningEffort(value === 'default' ? '' : (value as ReasoningEffort))
-                    }
-                    disabled={!selectedModelSupportsReasoningEffort}
-                  >
-                    <SelectTrigger id="popover-reasoning-effort" className="h-8 rounded-lg text-xs">
-                      <SelectValue placeholder="Model default" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="default" className="text-xs">Model default</SelectItem>
-                      {reasoningEffortOptions.map((effort) => (
-                        <SelectItem key={effort} value={effort} className="text-xs">
-                          {effort === 'xhigh' ? 'Extra high' : effort[0].toUpperCase() + effort.slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2 border-t border-border/50 pt-3">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="popover-system-prompt" className="text-xs font-medium">
                       System instructions
@@ -2927,8 +2968,41 @@ export default function Home() {
                             </button>
                           </div>
 
-                          {/* Right: Submit / Stop */}
+                          {/* Right: Reasoning Effort & Submit / Stop */}
                           <div className="flex items-center gap-1.5">
+                            {selectedModelSupportsReasoningEffort && reasoningEffortOptions.length > 0 ? (
+                              <Select
+                                value={effectiveReasoningEffort}
+                                onValueChange={(val) => setReasoningEffort(val as ReasoningEffort)}
+                                disabled={isLoading}
+                              >
+                                <SelectTrigger
+                                  className="h-7 w-auto gap-1 rounded-lg border border-border/60 bg-muted/30 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-foreground focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-40 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-50"
+                                  title="Reasoning effort"
+                                  aria-label={`Reasoning effort: ${formatEffortLabel(effectiveReasoningEffort)}`}
+                                >
+                                  <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                  <span className="text-[11px] font-medium">
+                                    {formatEffortLabel(effectiveReasoningEffort)}
+                                  </span>
+                                </SelectTrigger>
+                                <SelectContent align="end" className="min-w-[140px] rounded-xl text-xs">
+                                  {reasoningEffortOptions.map((effort) => (
+                                    <SelectItem key={effort} value={effort} className="text-xs">
+                                      <span className="flex w-full items-center justify-between gap-3">
+                                        <span>{formatEffortLabel(effort)}</span>
+                                        {effort === modelDefaultEffort ? (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            (Default)
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : null}
+
                             {isLoading ? (
                               <button
                                 type="button"
