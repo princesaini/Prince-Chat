@@ -146,10 +146,7 @@ function SidebarInner({
       {/* New Chat Button */}
       <div className="p-3">
         <Button
-          onClick={() => {
-            onNewChat();
-            if (onClose) onClose();
-          }}
+          onClick={onNewChat}
           disabled={isLoading}
           variant="outline"
           className="h-9 w-full justify-between rounded-xl border-border/70 bg-card/70 px-3 text-xs font-medium text-foreground shadow-2xs transition-all hover:border-border hover:bg-muted disabled:opacity-50"
