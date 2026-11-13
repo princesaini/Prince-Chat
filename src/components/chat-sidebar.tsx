@@ -73,6 +73,7 @@ function SidebarInner({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [sessionIdToDelete, setSessionIdToDelete] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -187,8 +188,8 @@ function SidebarInner({
       )}
 
       {/* Sessions List */}
-      <ScrollArea className="flex-1 px-2">
-        <div className="space-y-4 py-1">
+      <ScrollArea className="flex-1">
+        <div className="space-y-4 px-2.5 py-1">
           {filteredSessions.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               {searchQuery
@@ -209,13 +210,21 @@ function SidebarInner({
                     return (
                       <div
                         key={session.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => {
                           if (!isEditing) {
                             onSelectSession(session.id);
                           }
                         }}
+                        onKeyDown={(e) => {
+                          if (!isEditing && (e.key === 'Enter' || e.key === ' ')) {
+                            e.preventDefault();
+                            onSelectSession(session.id);
+                          }
+                        }}
                         className={cn(
-                          'group relative flex items-center justify-between gap-1.5 rounded-xl px-2.5 py-2 text-xs transition-colors cursor-pointer',
+                          'group relative flex items-center justify-between gap-1.5 rounded-xl px-2.5 py-2 text-xs transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring',
                           isActive
                             ? 'bg-accent/90 text-accent-foreground font-medium shadow-2xs'
                             : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -260,7 +269,7 @@ function SidebarInner({
                           </div>
                         ) : (
                           <>
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 pr-1.5">
                               <p className="truncate text-xs leading-snug">
                                 {session.title || 'Untitled Chat'}
                               </p>
@@ -272,7 +281,7 @@ function SidebarInner({
                             {/* Action Buttons (Visible on hover or if active) */}
                             <div
                               className={cn(
-                                'flex items-center gap-0.5 opacity-0 transition-opacity',
+                                'flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity',
                                 'group-hover:opacity-100',
                                 isActive && 'opacity-100'
                               )}
@@ -291,7 +300,7 @@ function SidebarInner({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onDeleteSession(session.id);
+                                  setSessionIdToDelete(session.id);
                                 }}
                                 className="rounded p-1 text-muted-foreground transition-colors hover:text-destructive"
                                 title="Delete conversation"
@@ -351,6 +360,41 @@ function SidebarInner({
           </AlertDialog>
         </div>
       )}
+
+      {/* Individual Session Delete Confirmation Dialog */}
+      <AlertDialog
+        open={Boolean(sessionIdToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setSessionIdToDelete(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl border border-border/80 bg-card p-5 sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-semibold">
+              Delete this chat?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-muted-foreground">
+              This conversation will be permanently removed from your chat history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-8 rounded-lg text-xs">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (sessionIdToDelete) {
+                  onDeleteSession(sessionIdToDelete);
+                  setSessionIdToDelete(null);
+                }
+              }}
+              className="h-8 rounded-lg bg-destructive px-3 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -392,11 +436,11 @@ export function ChatSidebar({
     <aside
       className={cn(
         'relative flex h-full shrink-0 flex-col border-r border-border/40 bg-card/40 backdrop-blur-md transition-all duration-200 ease-in-out',
-        isOpen ? 'w-64 sm:w-72' : 'w-0 border-r-0 overflow-hidden'
+        isOpen ? 'w-72 sm:w-80' : 'w-0 border-r-0 overflow-hidden'
       )}
       aria-hidden={!isOpen}
     >
-      <div className="w-64 sm:w-72 h-full flex flex-col">
+      <div className="w-72 sm:w-80 h-full flex flex-col">
         <SidebarInner
           sessions={sessions}
           activeSessionId={activeSessionId}

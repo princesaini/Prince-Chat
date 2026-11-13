@@ -69,6 +69,7 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ChatSidebar } from '@/components/chat-sidebar';
+import { ChatComposer } from '@/components/chat-composer';
 import { ThinkingAccordion } from '@/components/thinking-accordion';
 import { SearchChatsDialog } from '@/components/search-chats-dialog';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -91,6 +92,7 @@ import {
   ACTIVE_SESSION_STORAGE_KEY,
   SIDEBAR_OPEN_STORAGE_KEY,
 } from '@/lib/chat-sessions';
+import { streamChatCompletion } from '@/lib/openrouter-stream';
 
 type OpenRouterModel = {
   id: string;
@@ -326,61 +328,6 @@ function formatEstimatedCost(cost: number) {
   return `$${cost.toLocaleString(undefined, { maximumFractionDigits })}`;
 }
 
-function parseOpenRouterChunk(
-  chunk: string,
-  appendAssistantText: (text: string) => void,
-  updateAssistantUsage: (usage: unknown) => void,
-  appendAssistantReasoning?: (reasoning: string) => void
-) {
-  const events = chunk.split(/\r?\n\r?\n/);
-  const remainingChunk = events.pop() ?? '';
-
-  for (const event of events) {
-    const trimmedEvent = event.trim();
-    if (!trimmedEvent) {
-      continue;
-    }
-
-    const dataLines = trimmedEvent
-      .split('\n')
-      .filter((line) => line.startsWith('data: '))
-      .map((line) => line.slice(6).trim());
-
-    for (const dataLine of dataLines) {
-      if (!dataLine || dataLine === '[DONE]') {
-        continue;
-      }
-
-      try {
-        const parsed = JSON.parse(dataLine);
-        const delta = parsed.choices?.[0]?.delta;
-        const reasoning = delta?.reasoning || delta?.reasoning_content;
-        const content = delta?.content;
-
-        if (reasoning && appendAssistantReasoning) {
-          appendAssistantReasoning(reasoning);
-        }
-
-        if (content) {
-          appendAssistantText(content);
-        }
-
-        if (parsed.usage) {
-          updateAssistantUsage(parsed.usage);
-        }
-
-        if (parsed.error?.message) {
-          throw new Error(parsed.error.message);
-        }
-      } catch (error) {
-        console.error('Error parsing OpenRouter streaming data:', error);
-      }
-    }
-  }
-
-  return remainingChunk;
-}
-
 function parseContentAndThinking(message: Message): {
   displayReasoning: string | null;
   displayContent: string;
@@ -429,7 +376,10 @@ function CodeSnippet({
       if (language && hljs.getLanguage(language)) {
         return hljs.highlight(textContent, { language, ignoreIllegals: true }).value;
       }
-      return hljs.highlightAuto(textContent).value;
+      if (textContent.length < 5000) {
+        return hljs.highlightAuto(textContent).value;
+      }
+      return '';
     } catch {
       return '';
     }
@@ -1381,73 +1331,28 @@ export default function Home() {
         void persistCurrentSession(finalImageMessages);
       } else {
         const requestPricing = selectedModelMetadata?.pricing;
-        const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-openrouter-api-key': openRouterApiKey.trim(),
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              ...(systemPrompt.trim()
-                ? [{ role: 'system', content: systemPrompt.trim() }]
-                : []),
-              ...newMessages.map(toOpenRouterMessage),
-            ],
-            stream: true,
-            ...(webSearchEnabled
-              ? { tools: [{ type: 'openrouter:web_search' }] }
-              : {}),
-            ...(effectiveReasoningEffort &&
-            selectedModelSupportsReasoningEffort &&
-            selectedReasoningEffortIsAvailable
-              ? { reasoning: { effort: effectiveReasoningEffort } }
-              : {}),
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error('The request failed.');
-        }
-
-        if (!response.body) {
-          throw new Error('The response body is empty.');
-        }
-
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: '', modelId: selectedModel },
         ]);
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let bufferedChunk = '';
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {
-            break;
-          }
-
-          bufferedChunk = parseOpenRouterChunk(
-            bufferedChunk + decoder.decode(value, { stream: true }),
-            appendAssistantText,
-            (usage) => updateAssistantUsage(usage, requestPricing),
-            appendAssistantReasoning
-          );
-        }
-
-        const finalChunk = bufferedChunk + decoder.decode();
-        if (finalChunk.trim()) {
-          parseOpenRouterChunk(
-            `${finalChunk}\n\n`,
-            appendAssistantText,
-            (usage) => updateAssistantUsage(usage, requestPricing),
-            appendAssistantReasoning
-          );
-        }
+        await streamChatCompletion({
+          apiKey: openRouterApiKey,
+          modelId: selectedModel,
+          messages: newMessages.map(toOpenRouterMessage),
+          systemPrompt,
+          webSearchEnabled,
+          reasoningEffort:
+            effectiveReasoningEffort &&
+            selectedModelSupportsReasoningEffort &&
+            selectedReasoningEffortIsAvailable
+              ? effectiveReasoningEffort
+              : undefined,
+          signal: controller.signal,
+          onTextChunk: appendAssistantText,
+          onReasoningChunk: appendAssistantReasoning,
+          onUsage: (usage) => updateAssistantUsage(usage, requestPricing),
+        });
 
         if (reasoningStartRef.current) {
           const duration = Date.now() - reasoningStartRef.current;
@@ -1545,67 +1450,26 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-openrouter-api-key': openRouterApiKey.trim(),
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages: [
-            ...(systemPrompt.trim()
-              ? [{ role: 'system', content: systemPrompt.trim() }]
-              : []),
-            ...retryMessages.map(toOpenRouterMessage),
-          ],
-          stream: true,
-          ...(webSearchEnabled
-            ? { tools: [{ type: 'openrouter:web_search' }] }
-            : {}),
-          ...(retryReasoningEffort && retryModelSupportsReasoningEffort
-            ? { reasoning: { effort: retryReasoningEffort } }
-            : {}),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('The retry request failed.');
-      }
-
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: '', modelId },
       ]);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let bufferedChunk = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        bufferedChunk = parseOpenRouterChunk(
-          bufferedChunk + decoder.decode(value, { stream: true }),
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing),
-          appendAssistantReasoning
-        );
-      }
-
-      const finalChunk = bufferedChunk + decoder.decode();
-      if (finalChunk.trim()) {
-        parseOpenRouterChunk(
-          `${finalChunk}\n\n`,
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing),
-          appendAssistantReasoning
-        );
-      }
+      await streamChatCompletion({
+        apiKey: openRouterApiKey,
+        modelId,
+        messages: retryMessages.map(toOpenRouterMessage),
+        systemPrompt,
+        webSearchEnabled,
+        reasoningEffort:
+          retryReasoningEffort && retryModelSupportsReasoningEffort
+            ? retryReasoningEffort
+            : undefined,
+        signal: controller.signal,
+        onTextChunk: appendAssistantText,
+        onReasoningChunk: appendAssistantReasoning,
+        onUsage: (usage) => updateAssistantUsage(usage, retryModelMetadata?.pricing),
+      });
 
       if (reasoningStartRef.current) {
         const duration = Date.now() - reasoningStartRef.current;
@@ -1682,65 +1546,26 @@ export default function Home() {
         : regenerateModelDefault;
 
     try {
-      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-openrouter-api-key': openRouterApiKey.trim(),
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages: [
-            ...(systemPrompt.trim()
-              ? [{ role: 'system', content: systemPrompt.trim() }]
-              : []),
-            ...baseMessages.map(toOpenRouterMessage),
-          ],
-          stream: true,
-          ...(webSearchEnabled
-            ? { tools: [{ type: 'openrouter:web_search' }] }
-            : {}),
-          ...(regenerateReasoningEffort && regenerateSupportsReasoningEffort
-            ? { reasoning: { effort: regenerateReasoningEffort } }
-            : {}),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('The regeneration request failed.');
-      }
-
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: '', modelId },
       ]);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let bufferedChunk = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        bufferedChunk = parseOpenRouterChunk(
-          bufferedChunk + decoder.decode(value, { stream: true }),
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing),
-          appendAssistantReasoning
-        );
-      }
-
-      const finalChunk = bufferedChunk + decoder.decode();
-      if (finalChunk.trim()) {
-        parseOpenRouterChunk(
-          `${finalChunk}\n\n`,
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing),
-          appendAssistantReasoning
-        );
-      }
+      await streamChatCompletion({
+        apiKey: openRouterApiKey,
+        modelId,
+        messages: baseMessages.map(toOpenRouterMessage),
+        systemPrompt,
+        webSearchEnabled,
+        reasoningEffort:
+          regenerateReasoningEffort && regenerateSupportsReasoningEffort
+            ? regenerateReasoningEffort
+            : undefined,
+        signal: controller.signal,
+        onTextChunk: appendAssistantText,
+        onReasoningChunk: appendAssistantReasoning,
+        onUsage: (usage) => updateAssistantUsage(usage, regenerateModelMetadata?.pricing),
+      });
 
       if (reasoningStartRef.current) {
         const duration = Date.now() - reasoningStartRef.current;
@@ -1845,67 +1670,28 @@ export default function Home() {
 
     try {
       const requestPricing = selectedModelMetadata?.pricing;
-      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-openrouter-api-key': openRouterApiKey.trim(),
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: [
-            ...(systemPrompt.trim()
-              ? [{ role: 'system', content: systemPrompt.trim() }]
-              : []),
-            ...newMessages.map(toOpenRouterMessage),
-          ],
-          stream: true,
-          ...(webSearchEnabled
-            ? { tools: [{ type: 'openrouter:web_search' }] }
-            : {}),
-          ...(effectiveReasoningEffort &&
-          selectedModelSupportsReasoningEffort &&
-          selectedReasoningEffortIsAvailable
-            ? { reasoning: { effort: effectiveReasoningEffort } }
-            : {}),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('The request failed.');
-      }
-
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: '', modelId: selectedModel },
       ]);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let bufferedChunk = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        bufferedChunk = parseOpenRouterChunk(
-          bufferedChunk + decoder.decode(value, { stream: true }),
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing),
-          appendAssistantReasoning
-        );
-      }
-
-      const finalChunk = bufferedChunk + decoder.decode();
-      if (finalChunk.trim()) {
-        parseOpenRouterChunk(
-          `${finalChunk}\n\n`,
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing),
-          appendAssistantReasoning
-        );
-      }
+      await streamChatCompletion({
+        apiKey: openRouterApiKey,
+        modelId: selectedModel,
+        messages: newMessages.map(toOpenRouterMessage),
+        systemPrompt,
+        webSearchEnabled,
+        reasoningEffort:
+          effectiveReasoningEffort &&
+          selectedModelSupportsReasoningEffort &&
+          selectedReasoningEffortIsAvailable
+            ? effectiveReasoningEffort
+            : undefined,
+        signal: controller.signal,
+        onTextChunk: appendAssistantText,
+        onReasoningChunk: appendAssistantReasoning,
+        onUsage: (usage) => updateAssistantUsage(usage, requestPricing),
+      });
 
       if (reasoningStartRef.current) {
         const duration = Date.now() - reasoningStartRef.current;
@@ -1972,67 +1758,28 @@ export default function Home() {
 
     try {
       const requestPricing = selectedModelMetadata?.pricing;
-      const response = await fetch('/api/openrouter/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-openrouter-api-key': openRouterApiKey.trim(),
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: [
-            ...(systemPrompt.trim()
-              ? [{ role: 'system', content: systemPrompt.trim() }]
-              : []),
-            ...messages.map(toOpenRouterMessage),
-          ],
-          stream: true,
-          ...(webSearchEnabled
-            ? { tools: [{ type: 'openrouter:web_search' }] }
-            : {}),
-          ...(effectiveReasoningEffort &&
-          selectedModelSupportsReasoningEffort &&
-          selectedReasoningEffortIsAvailable
-            ? { reasoning: { effort: effectiveReasoningEffort } }
-            : {}),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('The request failed.');
-      }
-
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: '', modelId: selectedModel },
       ]);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let bufferedChunk = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        bufferedChunk = parseOpenRouterChunk(
-          bufferedChunk + decoder.decode(value, { stream: true }),
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing),
-          appendAssistantReasoning
-        );
-      }
-
-      const finalChunk = bufferedChunk + decoder.decode();
-      if (finalChunk.trim()) {
-        parseOpenRouterChunk(
-          `${finalChunk}\n\n`,
-          appendAssistantText,
-          (usage) => updateAssistantUsage(usage, requestPricing),
-          appendAssistantReasoning
-        );
-      }
+      await streamChatCompletion({
+        apiKey: openRouterApiKey,
+        modelId: selectedModel,
+        messages: messages.map(toOpenRouterMessage),
+        systemPrompt,
+        webSearchEnabled,
+        reasoningEffort:
+          effectiveReasoningEffort &&
+          selectedModelSupportsReasoningEffort &&
+          selectedReasoningEffortIsAvailable
+            ? effectiveReasoningEffort
+            : undefined,
+        signal: controller.signal,
+        onTextChunk: appendAssistantText,
+        onReasoningChunk: appendAssistantReasoning,
+        onUsage: (usage) => updateAssistantUsage(usage, requestPricing),
+      });
 
       if (reasoningStartRef.current) {
         const duration = Date.now() - reasoningStartRef.current;
@@ -2444,6 +2191,9 @@ export default function Home() {
             <Download className="h-3.5 w-3.5" />
           </Button>
 
+          {/* Theme Toggle */}
+          <ThemeToggle />
+
           {/* Account Balance / Credits Pill */}
           <button
             type="button"
@@ -2478,9 +2228,6 @@ export default function Home() {
               <span className="text-[11px]">Credits</span>
             )}
           </button>
-
-          {/* Theme Toggle */}
-          <ThemeToggle />
         </div>
       </header>
 
@@ -2830,206 +2577,31 @@ export default function Home() {
       </main>
 
       {/* Floating Modern Composer */}
-      <footer className="z-10 shrink-0 px-3 pb-3 pt-1 sm:px-6 sm:pb-4">
-        <div className="mx-auto w-full max-w-3xl">
-          {/* Pending Attachments Strip */}
-          {pendingAttachments.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-1.5 px-1">
-              {pendingAttachments.map((attachment) => (
-                <div
-                  key={attachment.id}
-                  className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 py-1 pl-2 pr-1 text-xs"
-                >
-                  {attachment.kind === 'image' ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={attachment.dataUrl}
-                      alt=""
-                      className="h-5 w-5 rounded object-cover"
-                    />
-                  ) : (
-                    <FileText className="h-3 w-3 text-muted-foreground" />
-                  )}
-                  <span className="max-w-[120px] truncate text-[11px]">
-                    {attachment.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removePendingAttachment(attachment.id)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                    aria-label={`Remove ${attachment.name}`}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Composer Card */}
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <input
-                ref={attachmentInputRef}
-                type="file"
-                accept={attachmentAccept}
-                multiple
-                onChange={handleAttachmentChange}
-                className="sr-only"
-                aria-hidden="true"
-                tabIndex={-1}
-              />
-              <FormField
-                control={form.control}
-                name="message"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <div className="rounded-2xl border border-border/80 bg-card/90 p-2 shadow-xs transition-all focus-within:border-foreground/30 focus-within:shadow-sm dark:bg-zinc-900/90">
-                        {/* Auto-expanding Multi-line Textarea */}
-                        <Textarea
-                          {...field}
-                          ref={(node) => {
-                            field.ref(node);
-                            // @ts-expect-error - assigning mutable ref
-                            composerTextareaRef.current = node;
-                          }}
-                          placeholder={
-                            selectedModelOutputsImage
-                              ? 'Describe the image you want to generate...'
-                              : selectedModelSupportsAttachments
-                                ? 'Send a message or attach images / documents...'
-                                : 'Send a message...'
-                          }
-                          disabled={isLoading}
-                          rows={1}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              void form.handleSubmit(onSubmit)();
-                            }
-                          }}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            const target = e.target;
-                            target.style.height = 'auto';
-                            target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
-                          }}
-                          className="min-h-[44px] max-h-44 w-full resize-none border-0 bg-transparent px-2.5 py-1 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
-                        />
-
-                        {/* Composer Toolbar */}
-                        <div className="mt-1 flex items-center justify-between border-t border-border/30 pt-1.5">
-                          {/* Left Tools */}
-                          <div className="flex items-center gap-1">
-                            {/* Attachment Button */}
-                            <button
-                              type="button"
-                              onClick={() => attachmentInputRef.current?.click()}
-                              disabled={
-                                isLoading ||
-                                !selectedModelSupportsAttachments ||
-                                !openRouterApiKey.trim()
-                              }
-                              className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
-                              title={
-                                selectedModelSupportsAttachments
-                                  ? 'Attach image or PDF'
-                                  : 'Model does not support attachments'
-                              }
-                            >
-                              {selectedModelSupportsImageInput ? (
-                                <ImageIcon className="h-3.5 w-3.5" />
-                              ) : (
-                                <Paperclip className="h-3.5 w-3.5" />
-                              )}
-                              <span className="hidden text-[11px] sm:inline">Attach</span>
-                            </button>
-
-                            {/* Web Search Quick Toggle */}
-                            <button
-                              type="button"
-                              onClick={() => setWebSearchEnabled((prev) => !prev)}
-                              className={cn(
-                                'inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
-                                webSearchEnabled
-                                  ? 'bg-foreground text-background'
-                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                              )}
-                              title="Toggle Web Search tool"
-                            >
-                              <Globe className="h-3.5 w-3.5" />
-                              <span className="text-[11px]">Search</span>
-                            </button>
-                          </div>
-
-                          {/* Right: Reasoning Effort & Submit / Stop */}
-                          <div className="flex items-center gap-1.5">
-                            {selectedModelSupportsReasoningEffort && reasoningEffortOptions.length > 0 ? (
-                              <Select
-                                value={effectiveReasoningEffort}
-                                onValueChange={(val) => setReasoningEffort(val as ReasoningEffort)}
-                                disabled={isLoading}
-                              >
-                                <SelectTrigger
-                                  className="h-7 w-auto gap-1 rounded-lg border border-border/60 bg-muted/30 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-foreground focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-40 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-50"
-                                  title="Reasoning effort"
-                                  aria-label={`Reasoning effort: ${formatEffortLabel(effectiveReasoningEffort)}`}
-                                >
-                                  <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                  <span className="text-[11px] font-medium">
-                                    {formatEffortLabel(effectiveReasoningEffort)}
-                                  </span>
-                                </SelectTrigger>
-                                <SelectContent align="end" className="min-w-[140px] rounded-xl text-xs">
-                                  {reasoningEffortOptions.map((effort) => (
-                                    <SelectItem key={effort} value={effort} className="text-xs">
-                                      <span className="flex w-full items-center justify-between gap-3">
-                                        <span>{formatEffortLabel(effort)}</span>
-                                        {effort === modelDefaultEffort ? (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            (Default)
-                                          </span>
-                                        ) : null}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : null}
-
-                            {isLoading ? (
-                              <button
-                                type="button"
-                                onClick={handleStopGenerating}
-                                className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
-                                aria-label="Stop generation"
-                              >
-                                <Square className="h-3 w-3 fill-current" />
-                              </button>
-                            ) : (
-                              <button
-                                type="submit"
-                                disabled={
-                                  (!field.value.trim() && pendingAttachments.length === 0) || isLoading
-                                }
-                                className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-20"
-                                aria-label="Send prompt"
-                              >
-                                <ArrowUp className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </form>
-          </Form>
-        </div>
-      </footer>
+      {/* Message Composer */}
+      <ChatComposer
+        form={form}
+        isLoading={isLoading}
+        openRouterApiKey={openRouterApiKey}
+        selectedModelOutputsImage={selectedModelOutputsImage}
+        selectedModelSupportsAttachments={selectedModelSupportsAttachments}
+        selectedModelSupportsImageInput={selectedModelSupportsImageInput}
+        attachmentAccept={attachmentAccept}
+        pendingAttachments={pendingAttachments}
+        onRemoveAttachment={removePendingAttachment}
+        onAttachmentChange={handleAttachmentChange}
+        attachmentInputRef={attachmentInputRef}
+        composerTextareaRef={composerTextareaRef}
+        webSearchEnabled={webSearchEnabled}
+        onToggleWebSearch={() => setWebSearchEnabled((prev) => !prev)}
+        selectedModelSupportsReasoningEffort={selectedModelSupportsReasoningEffort}
+        reasoningEffortOptions={reasoningEffortOptions}
+        effectiveReasoningEffort={effectiveReasoningEffort}
+        modelDefaultEffort={modelDefaultEffort}
+        formatEffortLabel={formatEffortLabel}
+        onSelectReasoningEffort={(effort) => setReasoningEffort(effort)}
+        onSubmit={onSubmit}
+        onStop={handleStopGenerating}
+      />
       </div>
 
       {/* OpenRouter API Key Dialog */}

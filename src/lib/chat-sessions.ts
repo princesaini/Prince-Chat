@@ -100,6 +100,18 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function getDB(): Promise<IDBDatabase> {
+  if (!dbPromise) {
+    dbPromise = openDB().catch((err) => {
+      dbPromise = null;
+      throw err;
+    });
+  }
+  return dbPromise;
+}
+
 // Fallback to localStorage if IndexedDB is blocked (e.g. private mode restrictions)
 function getFallbackSessions(): ChatSession[] {
   if (typeof window === 'undefined') return [];
@@ -122,6 +134,22 @@ function saveFallbackSessions(sessions: ChatSession[]): void {
     localStorage.setItem(FALLBACK_STORAGE_KEY, JSON.stringify(sessions));
   } catch (err) {
     console.warn('Failed to save fallback sessions to localStorage', err);
+    // If quota exceeded, strip large attachments from older sessions to preserve history
+    try {
+      const lightweightSessions = sessions.map((s, idx) => {
+        if (idx === 0) return s;
+        return {
+          ...s,
+          messages: s.messages.map((m) => ({
+            ...m,
+            attachments: m.attachments?.map((a) => ({ ...a, dataUrl: '' })),
+          })),
+        };
+      });
+      localStorage.setItem(FALLBACK_STORAGE_KEY, JSON.stringify(lightweightSessions));
+    } catch {
+      // Ignore fallback serialization error
+    }
   }
 }
 
@@ -129,7 +157,7 @@ export async function getAllSessions(): Promise<ChatSession[]> {
   if (typeof window === 'undefined') return [];
 
   try {
-    const db = await openDB();
+    const db = await getDB();
     return await new Promise<ChatSession[]>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readonly');
       const store = transaction.objectStore(STORE_NAME);
@@ -155,7 +183,7 @@ export async function saveSession(session: ChatSession): Promise<void> {
   if (typeof window === 'undefined') return;
 
   try {
-    const db = await openDB();
+    const db = await getDB();
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
@@ -181,7 +209,7 @@ export async function deleteSession(id: string): Promise<void> {
   if (typeof window === 'undefined') return;
 
   try {
-    const db = await openDB();
+    const db = await getDB();
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
@@ -201,7 +229,7 @@ export async function clearAllSessions(): Promise<void> {
   if (typeof window === 'undefined') return;
 
   try {
-    const db = await openDB();
+    const db = await getDB();
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);

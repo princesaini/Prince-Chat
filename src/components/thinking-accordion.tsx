@@ -38,11 +38,10 @@ export function ThinkingAccordion({
     return () => clearInterval(interval);
   }, [isStreaming]);
 
-  // Keep open while streaming unless user toggled it
+  // Keep open while streaming, collapse once completed (unless user manually toggled it)
   useEffect(() => {
-    if (isStreaming && !userInteracted) {
-      setIsOpen(true);
-    }
+    if (userInteracted) return;
+    setIsOpen(isStreaming);
   }, [isStreaming, userInteracted]);
 
   if (!content && !isStreaming) {
