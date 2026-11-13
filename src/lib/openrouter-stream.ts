@@ -65,6 +65,33 @@ export async function streamChatCompletion({
   const decoder = new TextDecoder();
   let bufferedChunk = '';
 
+  let pendingText = '';
+  let pendingReasoning = '';
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushBuffer = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (pendingReasoning && onReasoningChunk) {
+      const r = pendingReasoning;
+      pendingReasoning = '';
+      onReasoningChunk(r);
+    }
+    if (pendingText) {
+      const t = pendingText;
+      pendingText = '';
+      onTextChunk(t);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushBuffer, 30);
+    }
+  };
+
   const processChunk = (chunkStr: string) => {
     const events = chunkStr.split(/\r?\n\r?\n/);
     const remainder = events.pop() ?? '';
@@ -91,10 +118,12 @@ export async function streamChatCompletion({
           const content = delta?.content;
 
           if (reasoning && onReasoningChunk) {
-            onReasoningChunk(reasoning);
+            pendingReasoning += reasoning;
+            scheduleFlush();
           }
           if (content) {
-            onTextChunk(content);
+            pendingText += content;
+            scheduleFlush();
           }
           if (parsed.usage && onUsage) {
             onUsage(parsed.usage);
@@ -109,14 +138,18 @@ export async function streamChatCompletion({
     return remainder;
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    bufferedChunk = processChunk(bufferedChunk + decoder.decode(value, { stream: true }));
-  }
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bufferedChunk = processChunk(bufferedChunk + decoder.decode(value, { stream: true }));
+    }
 
-  const finalChunk = bufferedChunk + decoder.decode();
-  if (finalChunk.trim()) {
-    processChunk(`${finalChunk}\n\n`);
+    const finalChunk = bufferedChunk + decoder.decode();
+    if (finalChunk.trim()) {
+      processChunk(`${finalChunk}\n\n`);
+    }
+  } finally {
+    flushBuffer();
   }
 }

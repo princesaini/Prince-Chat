@@ -4,12 +4,6 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from '
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import hljs from 'highlight.js';
-
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -70,7 +64,12 @@ import {
 import { ThemeToggle } from '@/components/theme-toggle';
 import { ChatSidebar } from '@/components/chat-sidebar';
 import { ChatComposer } from '@/components/chat-composer';
-import { ThinkingAccordion } from '@/components/thinking-accordion';
+import {
+  ChatMessageItem,
+  parseContentAndThinking,
+  formatEstimatedCost,
+} from '@/components/chat-message-item';
+import { ScrollToBottomButton } from '@/components/scroll-to-bottom-button';
 import { SearchChatsDialog } from '@/components/search-chats-dialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -86,9 +85,11 @@ import {
   generateChatTitle,
   generateSessionId,
   getAllSessions,
+  getSession,
   saveSession,
   deleteSession,
   clearAllSessions,
+  stripHeavyPayload,
   ACTIVE_SESSION_STORAGE_KEY,
   SIDEBAR_OPEN_STORAGE_KEY,
 } from '@/lib/chat-sessions';
@@ -314,115 +315,6 @@ function getMessageUsage(
   return { inputTokens, outputTokens, estimatedCost };
 }
 
-function formatTokenCount(tokens: number) {
-  return new Intl.NumberFormat(undefined, {
-    notation: 'compact',
-    maximumFractionDigits: tokens >= 1_000 ? 1 : 0,
-  }).format(tokens);
-}
-
-function formatEstimatedCost(cost: number) {
-  const maximumFractionDigits =
-    cost >= 1 ? 2 : cost >= 0.01 ? 3 : cost >= 0.0001 ? 4 : 6;
-
-  return `$${cost.toLocaleString(undefined, { maximumFractionDigits })}`;
-}
-
-function parseContentAndThinking(message: Message): {
-  displayReasoning: string | null;
-  displayContent: string;
-} {
-  if (message.reasoning) {
-    return {
-      displayReasoning: message.reasoning,
-      displayContent: message.content,
-    };
-  }
-
-  const thinkMatch = message.content.match(/^<think>([\s\S]*?)(?:<\/think>|$)([\s\S]*)$/);
-  if (thinkMatch) {
-    return {
-      displayReasoning: thinkMatch[1].trim(),
-      displayContent: thinkMatch[2].trimStart(),
-    };
-  }
-
-  return {
-    displayReasoning: null,
-    displayContent: message.content,
-  };
-}
-
-function CodeSnippet({
-  className,
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const [copied, setCopied] = useState(false);
-  const language = className ? className.replace(/language-/, '') : '';
-  const textContent = String(children).replace(/\n$/, '');
-
-  const copyCode = () => {
-    navigator.clipboard.writeText(textContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const highlightedCode = useMemo(() => {
-    if (!textContent) return '';
-    try {
-      if (language && hljs.getLanguage(language)) {
-        return hljs.highlight(textContent, { language, ignoreIllegals: true }).value;
-      }
-      if (textContent.length < 5000) {
-        return hljs.highlightAuto(textContent).value;
-      }
-      return '';
-    } catch {
-      return '';
-    }
-  }, [textContent, language]);
-
-  return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border/80 bg-zinc-950 text-zinc-100 dark:border-zinc-800 shadow-xs">
-      <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/90 px-3.5 py-1.5 text-xs text-zinc-400">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
-          {language || 'code'}
-        </span>
-        <button
-          type="button"
-          onClick={copyCode}
-          className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3 w-3 text-emerald-400" />
-              <span>Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3 w-3" />
-              <span>Copy</span>
-            </>
-          )}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-3.5 font-mono text-[12.5px] leading-relaxed text-zinc-200">
-        {highlightedCode ? (
-          <code
-            className={cn('hljs', language && `language-${language}`)}
-            dangerouslySetInnerHTML={{ __html: highlightedCode }}
-          />
-        ) : (
-          <code>{children}</code>
-        )}
-      </pre>
-    </div>
-  );
-}
-
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -450,7 +342,6 @@ export default function Home() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('');
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [systemPrompt, setSystemPrompt] = useState('');
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingMessageContent, setEditingMessageContent] = useState('');
   const { toast } = useToast();
@@ -505,64 +396,69 @@ export default function Home() {
   const selectedReasoningEffortIsAvailable =
     !effectiveReasoningEffort || reasoningEffortOptions.includes(effectiveReasoningEffort);
 
-  const filteredOpenRouterModels = openRouterModels.filter((model) => {
-    const inputModalities = model.architecture?.input_modalities ?? [];
-    const outputModalities = model.architecture?.output_modalities ?? [];
+  const filteredOpenRouterModels = useMemo(() => {
+    return openRouterModels.filter((model) => {
+      const inputModalities = model.architecture?.input_modalities ?? [];
+      const outputModalities = model.architecture?.output_modalities ?? [];
 
-    if (modelCategory === 'vision' && !inputModalities.includes('image')) return false;
-    if (modelCategory === 'image' && !outputModalities.includes('image')) return false;
-    if (modelCategory === 'file' && !inputModalities.includes('file')) return false;
+      if (modelCategory === 'vision' && !inputModalities.includes('image')) return false;
+      if (modelCategory === 'image' && !outputModalities.includes('image')) return false;
+      if (modelCategory === 'file' && !inputModalities.includes('file')) return false;
 
-    const query = openRouterModelSearch.trim().toLowerCase();
-    if (!query) {
-      return true;
-    }
+      const query = openRouterModelSearch.trim().toLowerCase();
+      if (!query) {
+        return true;
+      }
 
-    const searchableModelDetails = [
-      model.id,
-      model.name,
-      ...inputModalities,
-      ...outputModalities,
-      ...(inputModalities.includes('image') ? ['vision'] : []),
-      ...(outputModalities.includes('image') ? ['image generation'] : []),
-    ]
-      .join(' ')
-      .toLowerCase();
+      const searchableModelDetails = [
+        model.id,
+        model.name,
+        ...inputModalities,
+        ...outputModalities,
+        ...(inputModalities.includes('image') ? ['vision'] : []),
+        ...(outputModalities.includes('image') ? ['image generation'] : []),
+      ]
+        .join(' ')
+        .toLowerCase();
 
-    return searchableModelDetails.includes(query);
-  });
+      return searchableModelDetails.includes(query);
+    });
+  }, [openRouterModels, modelCategory, openRouterModelSearch]);
 
   const retryTargetMessage =
     retryTargetIndex === null ? undefined : messages[retryTargetIndex];
-  const retryPromptMessage =
-    retryTargetIndex === null
-      ? undefined
-      : [...messages.slice(0, retryTargetIndex)]
-          .reverse()
-          .find((message) => message.role === 'user');
-  const retryModels = openRouterModels.filter((model) => {
-    const query = retryModelSearch.trim().toLowerCase();
-    const inputModalities = model.architecture?.input_modalities ?? [];
-    const outputModalities = model.architecture?.output_modalities ?? [];
-    const supportsPromptAttachments =
-      !retryPromptMessage?.attachments?.some(
-        (attachment) =>
-          (attachment.kind === 'image' && !inputModalities.includes('image')) ||
-          (attachment.kind === 'file' && !inputModalities.includes('file'))
-      );
-    const supportsTextOutput =
-      outputModalities.length === 0 || outputModalities.includes('text');
-    const searchableModelDetails = [model.id, model.name, ...inputModalities, ...outputModalities]
-      .join(' ')
-      .toLowerCase();
+  const retryPromptMessage = useMemo(() => {
+    if (retryTargetIndex === null) return undefined;
+    return [...messages.slice(0, retryTargetIndex)]
+      .reverse()
+      .find((message) => message.role === 'user');
+  }, [messages, retryTargetIndex]);
 
-    return (
-      model.id !== retryTargetMessage?.modelId &&
-      supportsPromptAttachments &&
-      supportsTextOutput &&
-      (!query || searchableModelDetails.includes(query))
-    );
-  });
+  const retryModels = useMemo(() => {
+    return openRouterModels.filter((model) => {
+      const query = retryModelSearch.trim().toLowerCase();
+      const inputModalities = model.architecture?.input_modalities ?? [];
+      const outputModalities = model.architecture?.output_modalities ?? [];
+      const supportsPromptAttachments =
+        !retryPromptMessage?.attachments?.some(
+          (attachment) =>
+            (attachment.kind === 'image' && !inputModalities.includes('image')) ||
+            (attachment.kind === 'file' && !inputModalities.includes('file'))
+        );
+      const supportsTextOutput =
+        outputModalities.length === 0 || outputModalities.includes('text');
+      const searchableModelDetails = [model.id, model.name, ...inputModalities, ...outputModalities]
+        .join(' ')
+        .toLowerCase();
+
+      return (
+        model.id !== retryTargetMessage?.modelId &&
+        supportsPromptAttachments &&
+        supportsTextOutput &&
+        (!query || searchableModelDetails.includes(query))
+      );
+    });
+  }, [openRouterModels, retryModelSearch, retryTargetMessage?.modelId, retryPromptMessage]);
 
   const appendAssistantReasoning = (reasoningChunk: string) => {
     if (!reasoningStartRef.current) {
@@ -763,7 +659,7 @@ export default function Home() {
         const storedSessions = await getAllSessions();
         if (!isMounted) return;
 
-        setSessions(storedSessions);
+        setSessions(storedSessions.map(stripHeavyPayload));
 
         const savedActiveId =
           localStorage.getItem(STORAGE_KEYS.activeSessionId) ??
@@ -772,7 +668,8 @@ export default function Home() {
 
         if (targetSession) {
           setActiveSessionId(targetSession.id);
-          setMessages(targetSession.messages);
+          const fullSession = await getSession(targetSession.id);
+          setMessages(fullSession?.messages || targetSession.messages);
           if (targetSession.modelId) {
             setSelectedOpenRouterModel(targetSession.modelId);
           }
@@ -788,7 +685,8 @@ export default function Home() {
         } else if (storedSessions.length > 0) {
           const latest = storedSessions[0];
           setActiveSessionId(latest.id);
-          setMessages(latest.messages);
+          const fullLatest = await getSession(latest.id);
+          setMessages(fullLatest?.messages || latest.messages);
           if (latest.modelId) {
             setSelectedOpenRouterModel(latest.modelId);
           }
@@ -915,7 +813,7 @@ export default function Home() {
         };
 
         const filtered = prevSessions.filter((s) => s.id !== sessionId);
-        const nextSessions = [updatedSession, ...filtered];
+        const nextSessions = [stripHeavyPayload(updatedSession), ...filtered];
         nextSessions.sort((a, b) => b.updatedAt - a.updatedAt);
 
         void saveSession(updatedSession);
@@ -926,7 +824,7 @@ export default function Home() {
     [activeSessionId, selectedModel, systemPrompt, webSearchEnabled, reasoningEffort]
   );
 
-  const handleSelectSession = (id: string) => {
+  const handleSelectSession = async (id: string) => {
     if (id === activeSessionId) {
       if (isMobile) setIsMobileSidebarOpen(false);
       return;
@@ -940,7 +838,8 @@ export default function Home() {
       return;
     }
 
-    const target = sessions.find((s) => s.id === id);
+    const fullTarget = await getSession(id);
+    const target = fullTarget || sessions.find((s) => s.id === id);
     if (!target) return;
 
     setActiveSessionId(target.id);
@@ -981,7 +880,8 @@ export default function Home() {
         if (remaining.length > 0) {
           const nextSession = remaining[0];
           setActiveSessionId(nextSession.id);
-          setMessages(nextSession.messages);
+          const fullNext = await getSession(nextSession.id);
+          setMessages(fullNext?.messages || nextSession.messages);
           if (nextSession.modelId) {
             setSelectedOpenRouterModel(nextSession.modelId);
           }
@@ -1088,39 +988,21 @@ export default function Home() {
     const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
       '[data-radix-scroll-area-viewport]'
     );
-
-    viewport?.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: 'smooth',
-    });
-  }, [messages]);
-
-  // Scroll-to-bottom detection
-  useEffect(() => {
-    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
-      '[data-radix-scroll-area-viewport]'
-    );
     if (!viewport) return;
 
-    const handleScroll = () => {
-      const distanceFromBottom =
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      setShowScrollToBottom(distanceFromBottom > 140);
-    };
+    const distanceFromBottom =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const isNearBottom = distanceFromBottom < 150;
+    const lastMessage = messages[messages.length - 1];
+    const isUserMessage = lastMessage?.role === 'user';
 
-    viewport.addEventListener('scroll', handleScroll, { passive: true });
-    return () => viewport.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    const viewport = scrollAreaRef.current?.querySelector<HTMLDivElement>(
-      '[data-radix-scroll-area-viewport]'
-    );
-    viewport?.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: 'smooth',
-    });
-  }, []);
+    if (isNearBottom || isUserMessage) {
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior: isLoading ? 'auto' : 'smooth',
+      });
+    }
+  }, [messages, isLoading]);
 
   const removePendingAttachment = (id: string) => {
     setPendingAttachments((current) =>
@@ -1900,6 +1782,13 @@ export default function Home() {
 
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-background text-foreground">
+      {/* Ambient Liquid Glass Mesh Glow Orbs */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-[480px] w-[480px] rounded-full bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent blur-3xl dark:from-indigo-500/15 dark:via-purple-600/10" />
+        <div className="absolute -right-32 top-1/4 h-[520px] w-[520px] rounded-full bg-gradient-to-bl from-sky-400/10 via-cyan-500/5 to-transparent blur-3xl dark:from-sky-500/12 dark:via-cyan-500/8" />
+        <div className="absolute bottom-8 left-1/3 h-[420px] w-[420px] rounded-full bg-gradient-to-tr from-violet-500/8 via-pink-500/5 to-transparent blur-3xl dark:from-violet-500/10 dark:via-pink-500/5" />
+      </div>
+
       {/* Sidebar */}
       <ChatSidebar
         sessions={sessions}
@@ -1918,7 +1807,7 @@ export default function Home() {
       {/* Main Content Area */}
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top Header */}
-        <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-background/90 px-3 backdrop-blur-md sm:px-6">
+        <header className="z-10 flex h-14 shrink-0 items-center justify-between border-b border-border/30 bg-background/60 px-3 backdrop-blur-xl sm:px-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] dark:border-white/5 dark:bg-background/40">
           {/* Left: Sidebar Toggle, Quick Actions & Brand */}
           <div className="flex items-center gap-1.5">
             {/* When sidebar is collapsed (or on mobile), show Toggle, New Chat, and Search buttons */}
@@ -1961,7 +1850,7 @@ export default function Home() {
             )}
 
             <div className={cn('flex items-center gap-2', (!isSidebarOpen || isMobile) && 'pl-1')}>
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background shadow-sm ring-1 ring-white/20">
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
               <span className="text-sm font-semibold tracking-tight text-foreground">
@@ -1976,7 +1865,7 @@ export default function Home() {
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="group inline-flex max-w-[200px] items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:border-border hover:bg-muted/80 sm:max-w-[280px]"
+                className="group inline-flex max-w-[200px] items-center gap-1.5 rounded-full border border-border/50 bg-card/60 px-3.5 py-1.5 text-xs font-medium text-foreground backdrop-blur-xl shadow-[0_2px_12px_rgba(0,0,0,0.03),inset_0_1px_1px_rgba(255,255,255,0.2)] transition-all hover:border-border/80 hover:bg-card/90 sm:max-w-[280px] dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_2px_16px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.08)] dark:hover:bg-white/[0.08]"
                 aria-label="Choose model"
               >
                 <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1988,7 +1877,7 @@ export default function Home() {
             </PopoverTrigger>
             <PopoverContent
               align="center"
-              className="w-[min(94vw,34rem)] rounded-2xl border border-border/80 bg-popover/98 p-3 shadow-2xl backdrop-blur-xl"
+              className="w-[min(94vw,34rem)] rounded-2xl border border-border/60 bg-popover/80 p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/80 dark:shadow-[0_24px_70px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)]"
             >
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
@@ -2143,7 +2032,7 @@ export default function Home() {
             </PopoverTrigger>
             <PopoverContent
               align="end"
-              className="w-[min(92vw,22rem)] rounded-2xl border border-border/80 bg-popover/98 p-4 shadow-2xl backdrop-blur-xl"
+              className="w-[min(92vw,22rem)] rounded-2xl border border-border/60 bg-popover/80 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/80 dark:shadow-[0_24px_70px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)]"
             >
               <div className="mb-3">
                 <p className="text-xs font-semibold text-foreground">Response Controls</p>
@@ -2203,7 +2092,7 @@ export default function Home() {
                 ? 'OpenRouter account credits & key details'
                 : 'Enter OpenRouter API key'
             }
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/50 bg-card/50 px-2.5 text-xs text-muted-foreground backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.02),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:border-border hover:bg-card/80 hover:text-foreground dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_2px_12px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.08]"
           >
             <Wallet
               className={cn(
@@ -2284,256 +2173,23 @@ export default function Home() {
 
             {/* Messages */}
             {messages.map((message, index) => (
-              <div
+              <ChatMessageItem
                 key={index}
-                className={cn(
-                  'group flex flex-col',
-                  message.role === 'user' ? 'items-end' : 'items-start'
-                )}
-              >
-                {/* User Message */}
-                {message.role === 'user' ? (
-                  <div className="flex max-w-[85%] flex-col items-end sm:max-w-[75%]">
-                    {/* User Attachments */}
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
-                        {message.attachments.map((attachment) =>
-                          attachment.kind === 'image' ? (
-                            <div
-                              key={attachment.id}
-                              className="overflow-hidden rounded-xl border border-border/60 bg-muted/30"
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={attachment.dataUrl}
-                                alt={attachment.name}
-                                className="max-h-48 w-auto object-contain"
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              key={attachment.id}
-                              className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 text-xs"
-                            >
-                              <FileText className="h-3 w-3 text-muted-foreground" />
-                              <span className="truncate">{attachment.name}</span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    ) : null}
-
-                    {/* Inline Editing vs Normal View */}
-                    {editingMessageIndex === index ? (
-                      <div className="w-full min-w-[260px] rounded-2xl border border-border/80 bg-muted/40 p-2.5 sm:min-w-[340px]">
-                        <Textarea
-                          value={editingMessageContent}
-                          onChange={(e) => setEditingMessageContent(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              void handleSaveEdit();
-                            } else if (e.key === 'Escape') {
-                              handleCancelEdit();
-                            }
-                          }}
-                          className="min-h-[64px] resize-y rounded-xl border-border/60 bg-background text-xs"
-                          placeholder="Edit your prompt..."
-                          autoFocus
-                        />
-                        <div className="mt-2 flex items-center justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleCancelEdit}
-                            className="h-6 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground"
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => void handleSaveEdit()}
-                            disabled={!editingMessageContent.trim() || isLoading}
-                            className="h-6 rounded-md bg-foreground px-2 text-[11px] font-medium text-background hover:bg-foreground/90 disabled:opacity-30"
-                          >
-                            Save
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative rounded-2xl border border-border/50 bg-secondary/70 px-3.5 py-2 text-sm leading-relaxed text-foreground dark:bg-zinc-800/80">
-                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
-
-                        {/* Hover Action Bar */}
-                        <div className="mt-1 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                          <button
-                            type="button"
-                            onClick={() => handleEditMessage(index)}
-                            disabled={isLoading}
-                            aria-label="Edit message"
-                            title="Edit prompt"
-                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(message.content)}
-                            aria-label="Copy prompt"
-                            title="Copy prompt"
-                            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Assistant Message: Clean, Borderless & Spacious */
-                  <div className="w-full max-w-full">
-                    {/* Generated Images */}
-                    {message.images && message.images.length > 0 ? (
-                      <div className="my-2 grid gap-2.5 sm:grid-cols-2">
-                        {message.images.map((image, imageIndex) => (
-                          <div
-                            key={`${image.url.slice(0, 32)}-${imageIndex}`}
-                            className="overflow-hidden rounded-xl border border-border/60 bg-muted/20"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={image.url}
-                              alt={`Generated ${imageIndex + 1}`}
-                              className="h-auto w-full object-cover"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {/* Assistant Content & Reasoning */}
-                    {(() => {
-                      const { displayReasoning, displayContent } = parseContentAndThinking(message);
-                      const isCurrentlyStreaming = isLoading && index === messages.length - 1;
-                      const hasReasoning = Boolean(displayReasoning || (isCurrentlyStreaming && message.reasoning));
-                      const isThinkingStreaming = isCurrentlyStreaming && !displayContent && hasReasoning;
-
-                      return (
-                        <>
-                          {/* Collapsible Thinking / Reasoning Accordion */}
-                          {hasReasoning ? (
-                            <ThinkingAccordion
-                              thinking={displayReasoning}
-                              isStreaming={isThinkingStreaming}
-                              durationMs={message.reasoningTimeMs}
-                            />
-                          ) : null}
-
-                          {/* Markdown Body with Math (KaTeX) and Code Syntax Highlighting */}
-                          {displayContent ? (
-                            <div className="prose prose-zinc dark:prose-invert max-w-none text-[13.5px] leading-relaxed break-words">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm, remarkMath]}
-                                rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
-                                components={{
-                                  p: ({ node, ...props }) => (
-                                    <p className="mb-2 last:mb-0 leading-relaxed text-foreground" {...props} />
-                                  ),
-                                  ol: ({ node, ...props }) => (
-                                    <ol className="my-2 ml-4 list-decimal space-y-1 text-foreground" {...props} />
-                                  ),
-                                  ul: ({ node, ...props }) => (
-                                    <ul className="my-2 ml-4 list-disc space-y-1 text-foreground" {...props} />
-                                  ),
-                                  li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-                                  code: ({ node, className, children, ...props }) =>
-                                    className ? (
-                                      <CodeSnippet className={className}>
-                                        {children}
-                                      </CodeSnippet>
-                                    ) : (
-                                      <code
-                                        className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[12px] text-foreground"
-                                        {...props}
-                                      >
-                                        {children}
-                                      </code>
-                                    ),
-                                }}
-                              >
-                                {displayContent}
-                              </ReactMarkdown>
-                            </div>
-                          ) : isCurrentlyStreaming && !hasReasoning ? (
-                            <div className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
-                              <span className="h-1.5 w-1.5 rounded-full bg-foreground animate-ping" />
-                              <span>Generating...</span>
-                            </div>
-                          ) : null}
-
-                          {/* Assistant Footer: Token Usage & Actions */}
-                          {(displayContent || displayReasoning) && (index < messages.length - 1 || !isLoading) ? (
-                            <div className="mt-1.5 flex items-center justify-between gap-3 pt-1">
-                              {message.usage ? (
-                                <span
-                                  className="text-[10px] text-muted-foreground/75 font-mono"
-                                  title={`In: ${message.usage.inputTokens.toLocaleString()} · Out: ${message.usage.outputTokens.toLocaleString()}${message.usage.estimatedCost !== null ? ` · Cost: ${formatEstimatedCost(message.usage.estimatedCost)}` : ''}`}
-                                >
-                                  {formatTokenCount(message.usage.inputTokens)} in ·{' '}
-                                  {formatTokenCount(message.usage.outputTokens)} out
-                                  {message.usage.estimatedCost !== null
-                                    ? ` · ≈ ${formatEstimatedCost(message.usage.estimatedCost)}`
-                                    : ''}
-                                </span>
-                              ) : (
-                                <span />
-                              )}
-
-                              <div className="flex items-center gap-1 opacity-70 transition-opacity hover:opacity-100">
-                                {!message.images ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleRegenerate(index)}
-                                      disabled={isLoading}
-                                      aria-label="Regenerate response"
-                                      title="Regenerate"
-                                      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                                    >
-                                      <RefreshCw className="h-3 w-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenRetryPicker(index)}
-                                      disabled={isLoading}
-                                      aria-label="Retry with another model"
-                                      title="Try another model"
-                                      className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                                    >
-                                      <RotateCcw className="h-3 w-3" />
-                                    </button>
-                                  </>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopy(displayContent || message.content)}
-                                  aria-label="Copy response"
-                                  title="Copy response"
-                                  className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
+                message={message}
+                index={index}
+                totalMessages={messages.length}
+                isCurrentlyStreaming={isLoading && index === messages.length - 1}
+                isLoading={isLoading}
+                isEditing={editingMessageIndex === index}
+                editingMessageContent={editingMessageContent}
+                onEditMessage={handleEditMessage}
+                onSaveEdit={() => void handleSaveEdit()}
+                onCancelEdit={handleCancelEdit}
+                onEditingContentChange={(val) => setEditingMessageContent(val)}
+                onCopy={handleCopy}
+                onRegenerate={(idx) => void handleRegenerate(idx)}
+                onOpenRetryPicker={handleOpenRetryPicker}
+              />
             ))}
 
             {/* Inline Error & Retry Banner */}
@@ -2561,19 +2217,7 @@ export default function Home() {
         </ScrollArea>
 
         {/* Floating Scroll-to-Bottom Button */}
-        {showScrollToBottom && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={scrollToBottom}
-            aria-label="Scroll to bottom"
-            title="Scroll to bottom"
-            className="absolute bottom-4 right-6 z-20 h-8 w-8 rounded-full border border-border/70 bg-background/90 shadow-md backdrop-blur-md hover:bg-muted"
-          >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <ScrollToBottomButton scrollAreaRef={scrollAreaRef} />
       </main>
 
       {/* Floating Modern Composer */}

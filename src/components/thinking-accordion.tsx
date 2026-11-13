@@ -56,7 +56,7 @@ export function ThinkingAccordion({
         : null;
 
   return (
-    <div className="my-2.5 overflow-hidden rounded-xl border border-border/50 bg-muted/20 text-xs transition-all">
+    <div className="my-2.5 overflow-hidden rounded-xl border border-border/50 bg-muted/20 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.02),inset_0_1px_1px_rgba(255,255,255,0.08)] dark:bg-white/[0.02] dark:border-white/10 text-xs transition-all">
       <button
         type="button"
         onClick={() => {

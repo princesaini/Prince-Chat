@@ -179,6 +179,49 @@ export async function getAllSessions(): Promise<ChatSession[]> {
   }
 }
 
+export async function getSession(id: string): Promise<ChatSession | null> {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const db = await getDB();
+    return await new Promise<ChatSession | null>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(id);
+
+      request.onsuccess = () => resolve((request.result as ChatSession) || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn('IndexedDB getSession failed, using localStorage fallback', err);
+    const fallback = getFallbackSessions();
+    return fallback.find((s) => s.id === id) || null;
+  }
+}
+
+export function stripHeavyPayload(session: ChatSession): ChatSession {
+  return {
+    ...session,
+    messages: session.messages.map((m) => {
+      const hasAttachments = m.attachments && m.attachments.length > 0;
+      const hasImages = m.images && m.images.length > 0;
+      if (!hasAttachments && !hasImages) return m;
+
+      return {
+        ...m,
+        attachments: m.attachments?.map((a) => ({
+          ...a,
+          dataUrl: '', // remove heavy base64 from in-memory cache
+        })),
+        images: m.images?.map((img) => ({
+          ...img,
+          url: img.url.startsWith('data:') ? '' : img.url,
+        })),
+      };
+    }),
+  };
+}
+
 export async function saveSession(session: ChatSession): Promise<void> {
   if (typeof window === 'undefined') return;
 

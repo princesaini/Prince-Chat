@@ -79,7 +79,7 @@ export function ChatComposer({
   onStop,
 }: ChatComposerProps) {
   return (
-    <footer className="shrink-0 bg-gradient-to-t from-background via-background/90 to-transparent pb-3 pt-2">
+    <footer className="shrink-0 bg-gradient-to-t from-background via-background/80 to-transparent pb-3 pt-2">
       <div className="mx-auto w-full max-w-3xl px-3 sm:px-4">
         {/* Pending Attachments Tray */}
         {pendingAttachments.length > 0 && (
@@ -129,7 +129,7 @@ export function ChatComposer({
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <div className="rounded-2xl border border-border/80 bg-card/90 p-2 shadow-xs transition-all focus-within:border-foreground/30 focus-within:shadow-sm dark:bg-zinc-900/90">
+                    <div className="rounded-2xl border border-border/60 bg-card/75 p-2 shadow-[0_8px_32px_rgba(0,0,0,0.06),inset_0_1px_1px_rgba(255,255,255,0.25)] backdrop-blur-2xl transition-all focus-within:border-foreground/30 focus-within:shadow-[0_12px_40px_rgba(0,0,0,0.1),inset_0_1px_1px_rgba(255,255,255,0.35)] dark:border-white/10 dark:bg-zinc-900/60 dark:shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.08)] dark:focus-within:border-white/20">
                       {/* Auto-expanding Multi-line Textarea */}
                       <Textarea
                         {...field}
@@ -196,10 +196,10 @@ export function ChatComposer({
                             type="button"
                             onClick={onToggleWebSearch}
                             className={cn(
-                              'inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
+                              'inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-xs transition-all backdrop-blur-md',
                               webSearchEnabled
-                                ? 'bg-foreground text-background'
-                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                ? 'border-sky-500/40 bg-sky-500/15 text-sky-600 shadow-[0_2px_8px_rgba(14,165,233,0.15),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:border-sky-400/30 dark:bg-sky-500/20 dark:text-sky-300'
+                                : 'border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground dark:hover:bg-white/[0.04]'
                             )}
                             title="Toggle Web Search tool"
                           >
@@ -217,7 +217,7 @@ export function ChatComposer({
                               disabled={isLoading}
                             >
                               <SelectTrigger
-                                className="h-7 w-auto gap-1 rounded-lg border border-border/60 bg-muted/30 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-foreground focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-40 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-50"
+                                className="h-7 w-auto gap-1 rounded-lg border border-border/50 bg-muted/40 px-2 text-xs font-medium text-foreground backdrop-blur-md shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] transition-colors hover:bg-muted/70 hover:text-foreground focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-40 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3 [&>svg:last-child]:opacity-50 dark:border-white/10 dark:bg-white/[0.04]"
                                 title="Reasoning effort"
                                 aria-label={`Reasoning effort: ${formatEffortLabel(effectiveReasoningEffort)}`}
                               >
@@ -247,7 +247,7 @@ export function ChatComposer({
                             <button
                               type="button"
                               onClick={onStop}
-                              className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
+                              className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background shadow-[0_2px_8px_rgba(0,0,0,0.15)] ring-1 ring-white/20 transition-all hover:opacity-90 active:scale-95"
                               aria-label="Stop generation"
                             >
                               <Square className="h-3 w-3 fill-current" />
@@ -258,7 +258,7 @@ export function ChatComposer({
                               disabled={
                                 (!field.value.trim() && pendingAttachments.length === 0) || isLoading
                               }
-                              className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90 disabled:opacity-20"
+                              className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background shadow-[0_2px_8px_rgba(0,0,0,0.15)] ring-1 ring-white/20 transition-all hover:opacity-90 hover:scale-105 active:scale-95 disabled:opacity-20 disabled:hover:scale-100"
                               aria-label="Send prompt"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />

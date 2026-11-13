@@ -108,8 +108,8 @@ function SidebarInner({
     const q = searchQuery.toLowerCase().trim();
     return sessions.filter((s) => {
       const matchTitle = s.title.toLowerCase().includes(q);
-      const matchMessage = s.messages.some((m) =>
-        m.content.toLowerCase().includes(q)
+      const matchMessage = s.messages?.some((m) =>
+        m.content?.toLowerCase().includes(q)
       );
       return matchTitle || matchMessage;
     });
@@ -150,7 +150,7 @@ function SidebarInner({
           onClick={onNewChat}
           disabled={isLoading}
           variant="outline"
-          className="h-9 w-full justify-between rounded-xl border-border/70 bg-card/70 px-3 text-xs font-medium text-foreground shadow-2xs transition-all hover:border-border hover:bg-muted disabled:opacity-50"
+          className="h-9 w-full justify-between rounded-xl border border-border/60 bg-card/60 px-3 text-xs font-medium text-foreground backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.02),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:border-border hover:bg-card/90 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:shadow-[0_2px_10px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.06)] dark:hover:bg-white/[0.06]"
         >
           <div className="flex items-center gap-2">
             <Plus className="h-4 w-4 shrink-0 text-foreground" />
@@ -171,7 +171,7 @@ function SidebarInner({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search conversations... (Ctrl+K)"
-              className="h-8 rounded-lg border-border/50 bg-muted/30 pl-8 pr-7 text-xs placeholder:text-muted-foreground/60"
+              className="h-8 rounded-lg border-border/50 bg-muted/40 pl-8 pr-7 text-xs backdrop-blur-md placeholder:text-muted-foreground/60 transition-all dark:border-white/10 dark:bg-white/[0.03]"
             />
             {searchQuery && (
               <button
@@ -224,10 +224,10 @@ function SidebarInner({
                           }
                         }}
                         className={cn(
-                          'group relative flex items-center justify-between gap-1.5 rounded-xl px-2.5 py-2 text-xs transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                          'group relative flex items-center justify-between gap-1.5 rounded-xl px-2.5 py-2 text-xs transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-ring',
                           isActive
-                            ? 'bg-accent/90 text-accent-foreground font-medium shadow-2xs'
-                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                            ? 'bg-accent/80 text-accent-foreground font-medium shadow-[0_2px_10px_rgba(0,0,0,0.03),inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-md border border-border/50 dark:bg-white/[0.07] dark:border-white/10 dark:shadow-[0_2px_12px_rgba(0,0,0,0.25),inset_0_1px_1px_rgba(255,255,255,0.08)]'
+                            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground dark:hover:bg-white/[0.03]'
                         )}
                       >
                         {isEditing ? (
@@ -435,7 +435,7 @@ export function ChatSidebar({
   return (
     <aside
       className={cn(
-        'relative flex h-full shrink-0 flex-col border-r border-border/40 bg-card/40 backdrop-blur-md transition-all duration-200 ease-in-out',
+        'relative flex h-full shrink-0 flex-col border-r border-border/30 bg-card/30 backdrop-blur-2xl transition-all duration-200 ease-in-out shadow-[1px_0_12px_rgba(0,0,0,0.02)] dark:border-white/5 dark:bg-zinc-950/30',
         isOpen ? 'w-72 sm:w-80' : 'w-0 border-r-0 overflow-hidden'
       )}
       aria-hidden={!isOpen}

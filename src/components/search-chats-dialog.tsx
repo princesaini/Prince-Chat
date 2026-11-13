@@ -41,6 +41,7 @@ export function SearchChatsDialog({
   }, [open]);
 
   const filteredSessions = useMemo(() => {
+    if (!open) return [];
     const q = query.trim().toLowerCase();
     if (!q) {
       // Sort most recent first when no query
@@ -50,11 +51,11 @@ export function SearchChatsDialog({
     return sessions
       .filter((s) => {
         const titleMatch = s.title.toLowerCase().includes(q);
-        const messageMatch = s.messages.some((m) => m.content.toLowerCase().includes(q));
-        return titleMatch || messageMatch;
+        const messageMatch = s.messages?.some((m) => m.content?.toLowerCase().includes(q));
+        return titleMatch || Boolean(messageMatch);
       })
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
-  }, [sessions, query]);
+  }, [sessions, query, open]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -101,7 +102,7 @@ export function SearchChatsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(94vw,36rem)] rounded-2xl border border-border/80 bg-popover/98 p-0 shadow-2xl backdrop-blur-xl gap-0 overflow-hidden">
+      <DialogContent className="max-w-[min(94vw,36rem)] rounded-2xl border border-border/60 bg-popover/85 p-0 shadow-[0_24px_70px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.25)] backdrop-blur-2xl gap-0 overflow-hidden dark:border-white/10 dark:bg-zinc-900/85 dark:shadow-[0_24px_70px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.08)]">
         <DialogHeader className="sr-only">
           <DialogTitle>Search conversations</DialogTitle>
         </DialogHeader>
